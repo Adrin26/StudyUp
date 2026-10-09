@@ -5,7 +5,8 @@ from sqlalchemy.orm import Session
 from ..database import get_db
 from ..models import Lesson, LessonProgress, Profile
 from ..schemas import LessonProgressIn
-from ..security import get_current_user, require_student
+from ..permissions import require_student
+from ..security import get_current_user
 from ..services import gamification
 
 router = APIRouter(prefix="/api/lessons", tags=["lessons"])

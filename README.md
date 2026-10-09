@@ -1,99 +1,172 @@
-# StudyUp — AI Study Coach (SPM Learning Hub)
+# MINDA — Learn. Practice. Master.
 
-A learning platform for Malaysian secondary students (Form 1–5) preparing for SPM, with dashboards for class and subject teachers.
+MINDA is a school learning and academic management platform for Malaysian secondary schools (Form 1–5, SPM). It grew out of the StudyUp prototype and keeps its learning flow. Students learn a topic through short interactive slides, take a 10-question quiz, and see their mastery move. They can practise SPM-style questions and discuss in a school-scoped community. Teachers see which students and topics need attention, assign targeted practice, and generate exams from the question bank. Admins manage the school.
 
-Students learn a topic through short interactive slides, take a 10-question quiz, and see their mastery move. They can also practise SPM-style past-year questions or randomized sets, ask an AI tutor for hints, and discuss in a school-scoped community. Teachers see which students and topics need attention, assign targeted practice in two clicks, and generate exams from the question bank.
+There are exactly three roles: **Admin**, **Teacher** and **Student**. "Class teacher" and "subject teacher" are not roles. They are derived from a teacher's class and subject assignments.
 
-> **About the question bank:** the seeded questions are *SPM-style samples* generated for this demo, tagged with years 2019–2024 for filtering. They are **not** real SPM past-year papers. Import licensed questions into the `questions` table for real use.
+The architecture, ERD, permission matrix, API outline and the phased delivery plan are in [`docs/PLAN.md`](docs/PLAN.md). **Phase 1 (Foundation) is implemented**; later phases are listed there.
 
-## Quick start (local, no external services)
+> **About the question bank:** the seeded questions are *SPM-style samples* generated for this demo, tagged with years 2019–2024 for filtering. They are **not** real SPM past-year papers.
 
-Requirements: Python 3.11+, Node 20+.
+## Quick start (local)
+
+Requirements: Python 3.11+, Node 20+, and PostgreSQL 15+ (or SQLite for a quick look).
 
 ```powershell
 # Backend
 cd backend
-python -m venv .venv
-.venv\Scripts\pip install -r requirements.txt     # macOS/Linux: .venv/bin/pip
-copy .env.example .env                             # optional; defaults work
-.venv\Scripts\python -m app.seed                   # creates studyup.db with a demo school
-.venv\Scripts\uvicorn app.main:app --reload --port 8000
+python -m venv venv
+venv\Scripts\pip install -r requirements.txt
+copy .env.example .env          # then set DATABASE_URL (see below)
+venv\Scripts\alembic upgrade head    # PostgreSQL only; SQLite tables are created automatically
+venv\Scripts\python -m app.seed      # DEMO DATA: wipes the database and loads a fictional school
+venv\Scripts\uvicorn app.main:app --reload --port 8000
 
 # Frontend (second terminal)
 cd frontend
 npm install
-npm run dev                                        # http://localhost:5173
+npm run dev                     # http://localhost:5173
+```
+
+For local PostgreSQL, create the database once (`createdb -U postgres studyup_db`) and set:
+
+```
+DATABASE_URL=postgresql+psycopg://postgres:<password>@localhost:5432/studyup_db
+AUTH_MODE=local
 ```
 
 Vite proxies `/api` to `http://127.0.0.1:8000`. API docs: http://127.0.0.1:8000/docs.
 
-### Demo accounts (password `demo1234`)
+### Database migrations
 
-| Account | Role |
+Alembic (`backend/migrations`) is the source of truth for the schema on PostgreSQL:
+
+| Revision | Contents |
 | --- | --- |
-| `aisyah@student.demo` | Student, Form 4 Bestari — has an active streak, weak Quadratic Equations, and a pending assignment |
-| `farid@teacher.demo` | Class teacher of 4 Bestari + Mathematics / Add Maths subject teacher |
-| `rohana@teacher.demo` | Class teacher of 4 Cemerlang + Biology / History subject teacher |
-| `tan@teacher.demo` | Subject teacher only (Physics, Chemistry, English) |
+| `0001` | Baseline: the original StudyUp schema |
+| `0002` | Phase 1: account `status`, `username`, `last_login_at`, `local_credentials`, `password_reset_tokens`, `audit_logs`; removes the stored `teacher_types` |
 
-Every student account is `<firstname>@student.demo` (e.g. `ali@`, `sarah@`).
+```powershell
+venv\Scripts\alembic upgrade head      # apply
+venv\Scripts\alembic current           # show revision
+venv\Scripts\alembic check             # models and database agree
+```
 
-### AI features
+The seed resets the schema by running the migrations, so a seeded database is always at `head`. The app does not create tables on PostgreSQL. If migrations haven't been applied, it logs a warning on startup.
 
-Set `OPENAI_API_KEY` in `backend/.env` to enable OpenAI. Without a key, every AI feature (lesson help, hints, mistake explanations, similar questions, study summaries, teaching suggestions) returns a deterministic fallback, so the app is fully usable offline.
+### Demo accounts (development only, password `demo1234`)
 
-### Tests
+All seeded people, schools and results are **fictional demo data**. The login page lists these accounts only when `ENVIRONMENT=development` and `AUTH_MODE=local`.
+
+| Account | Username | Role |
+| --- | --- | --- |
+| `admin@school.demo` | `admin` | Admin of SMK Taman Ilmu |
+| `aisyah@student.demo` | `aisyah` | Student, Form 4 Bestari (active streak, weak Quadratic Equations, pending assignment) |
+| `farid@teacher.demo` | `farid` | Teacher: class teacher of 4 Bestari, Mathematics / Add Maths |
+| `rohana@teacher.demo` | `rohana` | Teacher: class teacher of 4 Cemerlang, Biology / History |
+| `tan@teacher.demo` | `tan` | Teacher: subject teacher only (Physics, Chemistry, English) |
+
+Users sign in with **email or username**. Every student is `<firstname>@student.demo`.
+
+### Creating a real admin
+
+Public self-registration is off, and no request can grant the Admin role. Provision admins from the server:
 
 ```powershell
 cd backend
-.venv\Scripts\python -m pytest -q
+venv\Scripts\python -m app.cli create-admin --email head@school.edu.my --name "Puan Head" --school-name "SMK Contoh"
+# prompts for the password (or reads MINDA_ADMIN_PASSWORD); it is stored only as a scrypt hash
+
+venv\Scripts\python -m app.cli grant-admin --email existing@school.edu.my
 ```
+
+Both commands write an entry to the audit log.
+
+## Authentication (Phase 1)
+
+`AUTH_MODE` selects the identity provider. The FastAPI permission checks are the same in both modes.
+
+- **`local`** (development / self-hosted): passwords are hashed with scrypt in `local_credentials`. FastAPI issues short-lived HS256 tokens. Tokens carry a password-version claim, so changing or resetting a password signs out every other session.
+- **`supabase`**: Supabase Auth issues tokens and FastAPI verifies them (JWT secret or JWKS). Password recovery uses Supabase's email flow.
+
+Security behaviour:
+
+- A login failure always shows the same message ("Incorrect email/username or password"), whether or not the account exists.
+- Login, forgot-password, reset and change-password are rate-limited per IP and per account (`LOGIN_MAX_FAILURES` failures in `LOGIN_WINDOW_MINUTES`).
+- **Disabled** accounts are refused at login and on every request, including requests that present a token issued before the account was disabled.
+- Password policy: 8–128 characters, at least one letter and one digit, and not the same as the email or username.
+- Password reset tokens are single-use and expire after `PASSWORD_RESET_TTL_MINUTES` (default 30). Only their SHA-256 hash is stored. In development the reset link is **printed to the API console**; no email provider is wired up yet.
+- Passwords are never returned, logged, or written to the audit log. The audit log strips password and token fields from its details.
+- Role checks live in `app/permissions.py` (`require_admin`, `require_teacher`, `require_student`, …). The frontend route guards are for UX only.
+
+## AI features (optional, off by default)
+
+The MVP does not depend on AI. With `AI_FEATURES_ENABLED=false` (the default):
+
+- every `/api/ai/*` endpoint returns 404;
+- the UI hides all AI entry points (lesson help, hints, explanations, "Why these?", teaching ideas).
+
+With `AI_FEATURES_ENABLED=true`, AI calls go through the backend only. Set `OPENAI_API_KEY` to use OpenAI. Without a key, the features return deterministic fallbacks.
+
+## Tests
+
+```powershell
+cd backend
+venv\Scripts\python -m pytest -q
+```
+
+The tests run against an isolated SQLite database. They cover:
+
+- login by email or username, and the generic failure message;
+- rate limiting;
+- disabled accounts, role guards and admin school scoping;
+- derived teacher responsibilities;
+- forgot, reset and change password, the password policy, and token invalidation;
+- audit logging, and the admin CLI;
+- the AI flag;
+- the migration chain: upgrade, a no-drift check, and downgrade;
+- the existing learning, quiz, practice and exam flows.
+
+Frontend: `cd frontend && npm run build` (type-checks and builds).
 
 ## Architecture
 
 ```
 frontend/   React + TypeScript + Vite + Tailwind v4 + shadcn-style UI + Recharts
-backend/    FastAPI + SQLAlchemy 2 + Pydantic
-  app/routers/    HTTP endpoints (auth, subjects, lessons, quiz, practice, exams, teachers, community, ai)
-  app/services/   all business logic — deterministic, unit-tested
-  app/seed/       demo curriculum, lessons, question generators, simulated history
-supabase/migrations/0001_schema.sql   Postgres schema + Row Level Security
+            TanStack Query, React Hook Form + Zod, React Router
+backend/    FastAPI + SQLAlchemy 2 + Pydantic + Alembic
+  app/permissions.py  centralised role guards
+  app/routers/        HTTP endpoints (auth, admin, subjects, lessons, quiz, practice, exams, teachers, community, ai)
+  app/services/       business logic: access scoping, passwords, rate limiting, audit, mastery, ...
+  app/cli.py          protected admin commands
+  app/seed/           DEMO DATA: curriculum, lessons, question generators, simulated history
+  migrations/         Alembic revisions
+supabase/migrations/  RLS policies and helpers for the Supabase deployment
+docs/PLAN.md          architecture, ERD, permission matrix, API outline, phases
 ```
 
-### What is deterministic vs. AI
+### What is deterministic
 
-All grading, scoring, mastery, randomization, exam generation, recommendations and analytics run in Python (`backend/app/services`). The LLM is only used for language: explanations, hints, summaries and teaching suggestions.
+All grading, scoring, mastery, randomization, exam generation, recommendations and analytics run in Python (`backend/app/services`).
 
-- **Mastery** (`services/mastery.py`): `evidence × (0.7 × recent + 0.3 × historical)`. *Recent* is difficulty-weighted accuracy over the last 10 attempts (easy 1, medium 1.5, hard 2); *evidence* ramps from 0.5 to 1 over the first 10 attempts, so two lucky answers don't read as "Mastered". Levels: 0–39 Needs Attention, 40–59 Developing, 60–79 Good, 80–100 Mastered. Levels are always shown with an icon and a label as well as a colour.
-- **Randomization** (`services/randomizer.py`): a seeded `random.Random` over an id-sorted pool, so a practice set or exam can be reproduced from its stored seed. Difficulty mixes use largest-remainder allocation.
-- **Quiz selection** prefers questions the student hasn't answered correctly yet, then orders easy → hard.
-- **Recommendations** (`services/recommendations.py`): rule-based (pending assignment → weak topics → unfinished lesson → next topic → past-year practice). AI only writes the friendly summary.
+- **Mastery** (`services/mastery.py`): `evidence × (0.7 × recent + 0.3 × historical)`. *Recent* is difficulty-weighted accuracy over the last 10 attempts. *Evidence* ramps from 0.5 to 1 over the first 10 attempts. Levels: 0–39 Needs Attention, 40–59 Developing, 60–79 Good, 80–100 Mastered.
+- **Randomization** (`services/randomizer.py`): a seeded `random.Random`, so a practice set or exam can be reproduced from its stored seed.
+- **Recommendations** (`services/recommendations.py`): rule-based (pending assignment, then weak topics, then an unfinished lesson, then the next topic).
 - **Intervention alerts** (`services/analytics.py`): a topic is flagged when at least `max(3, class_size / 4)` students are below 50% mastery.
-- **Gamification**: XP per answer (10/15/20 by difficulty; 2 for a wrong answer), quiz, perfect-quiz and lesson bonuses, levels every 500 XP, streaks counted in Malaysia time (UTC+8), and badges.
-
-### AI safety and cost controls (`services/openai_service.py`)
-
-- The OpenAI key lives only on the backend; React never calls OpenAI.
-- Structured outputs (Pydantic schemas) with `max_completion_tokens` limits and a low-cost model (`gpt-4o-mini` by default).
-- Responses are cached by a hash of the prompt payload (`ai_cache`), and each user has a daily request limit.
-- Hints for an active question are checked by `answer_leaks()`; if the model reveals the answer, the hint is replaced by a safe fallback. Answers are never sent to the client before the student submits.
-- AI-generated "similar questions" are validated (options, answer key) and stored as `pending_review`. They never enter the published bank automatically.
-- Every call is logged in `ai_interactions`, with the 👍/👎 "Was this helpful?" feedback.
 
 ### Authorization
 
-The backend checks every request, independent of the UI (`services/access.py`):
+The backend checks every request, independent of the UI:
 
-- Students only read and write their own progress.
-- A **class teacher** sees every subject for students in their homeroom class.
-- A **subject teacher** sees only their subject, and only for the classes they teach.
-- The student community is scoped to the student's school (teachers can read it but not post). The teacher community spans schools.
+- **Admin**: only their own school's records (overview, audit log).
+- **Student**: only their own progress.
+- **Teacher**: as **class teacher**, every subject for students in their homeroom class; as **subject teacher**, only their subject, and only for the classes they teach. A teacher can be both. Responsibilities are computed from `classes.class_teacher_id` and `teacher_subjects` (`services/access.py`).
 
-On Supabase, the same rules are enforced again with RLS (`supabase/migrations/0001_schema.sql`), using `SECURITY DEFINER` helpers such as `teacher_can_view(student, subject)`. Progress and attempt tables are writable only through the backend (service role), so students can't edit their own scores. Questions are exposed to clients through the `questions_public` view, which has no answer columns.
+On Supabase, the same rules are enforced again with RLS (`supabase/migrations/`). Progress, attempt and audit tables are writable only through the backend.
 
 ## Using Supabase
 
-1. Create a Supabase project and run `supabase/migrations/0001_schema.sql` in the SQL editor (or `supabase db push`).
+1. Create a Supabase project. Run `supabase/migrations/0001_schema.sql` in the SQL editor.
 2. Backend `.env`:
    ```
    AUTH_MODE=supabase
@@ -101,19 +174,26 @@ On Supabase, the same rules are enforced again with RLS (`supabase/migrations/00
    SUPABASE_URL=https://<ref>.supabase.co
    SUPABASE_JWT_SECRET=<legacy JWT secret>   # or leave empty to verify via JWKS
    ```
-3. Frontend `.env` (copy from `frontend/.env.example`): `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`. When these are set, the login page uses Supabase Auth instead of the demo accounts.
-4. New sign-ups get a `profiles` row with role `student` (trigger `handle_new_user`). Promote teachers, and set `teacher_types`, `school_id`, class and subject assignments, using the SQL editor or an admin tool.
+3. `cd backend && alembic stamp 0001 && alembic upgrade head`, then run `supabase/migrations/0002_phase1_auth_rls.sql`.
+4. Frontend `.env`: `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` (the anon key only; never the service-role key).
+5. Disable public sign-ups in Supabase Auth settings. Accounts that are created anyway become students (trigger `handle_new_user`). Grant admin with `python -m app.cli grant-admin`.
 
-The demo seed (`python -m app.seed`) only runs with `AUTH_MODE=demo` against SQLite or a local Postgres (`DATABASE_URL=postgresql+psycopg://postgres:<password>@localhost:5432/studyup`), never against Supabase: it drops all tables and creates profiles without matching `auth.users` rows. Load curriculum and questions into Supabase separately.
+The demo seed refuses to run with `AUTH_MODE=supabase`, against a Supabase URL, or in production.
+
+> The Supabase path has not yet been verified against a live Supabase project; Phase 1 was verified with local PostgreSQL.
 
 ## Deployment notes
 
-- **Frontend**: `npm run build` produces a static `frontend/dist` (Vercel, Netlify, Cloudflare Pages). Set `VITE_API_URL` to the backend URL if it isn't served under the same origin at `/api`.
-- **Backend**: any container host (Render, Railway, Fly.io): `uvicorn app.main:app --host 0.0.0.0 --port $PORT`. Set `ENVIRONMENT=production`, a strong `APP_SECRET`, `CORS_ORIGINS` set to the frontend URL, and the Supabase and OpenAI variables.
-- Tables are created on startup with SQLAlchemy `create_all` for local SQLite. On Supabase, the SQL migration is the source of truth.
+- **Frontend**: `npm run build` produces a static `frontend/dist`. Set `VITE_API_URL` if the API isn't served from the same origin at `/api`.
+- **Backend**: `uvicorn app.main:app --host 0.0.0.0 --port $PORT`. Run `alembic upgrade head` on deploy. With `ENVIRONMENT=production` the app refuses to start without an `APP_SECRET` of 32+ characters or with SQLite. Set `CORS_ORIGINS` to the frontend URL.
+- The login rate limiter is in-process. Behind several workers or instances, replace it with a shared store (e.g. Redis).
 
-## MVP scope
+## Roadmap
 
-Included: auth with roles, the student dashboard, Subject → Topic → Lesson → 10-question quiz → results, mastery tracking, past-year and randomized practice, AI hints and explanations with feedback, gamification, the community, teacher subject and class dashboards, intervention alerts with one-click assignments, and the exam generator.
+See [`docs/PLAN.md`](docs/PLAN.md). Phase 2 onward covers:
 
-Postponed: PDF export of exams (Print is available instead), voice, RAG over textbooks, a teacher review queue for AI-generated questions, admin UI, and parent accounts.
+- admin user, class and subject management, and the school calendar;
+- homework and assessments, and announcements;
+- reports and analytics;
+- the moved-over learning features;
+- the optional AI services.

@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { api } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 import type { AIResponse, AnswerFeedback, QuestionPublic } from "@/types";
 
@@ -48,6 +49,7 @@ export function QuestionCard({
   allowHints?: boolean;
   footer?: ReactNode;
 }) {
+  const { aiEnabled } = useAuth();
   const [answer, setAnswer] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -137,7 +139,7 @@ export function QuestionCard({
           <Button size="lg" variant="gradient" className="w-full sm:w-auto" onClick={submit} disabled={!answer.trim() || busy}>
             {busy && <Spinner />} Submit answer
           </Button>
-          {allowHints && <HintBox questionId={question.id} />}
+          {allowHints && aiEnabled && <HintBox questionId={question.id} />}
         </div>
       ) : (
         <FeedbackPanel feedback={feedback} questionId={question.id} />
@@ -148,6 +150,7 @@ export function QuestionCard({
 }
 
 export function FeedbackPanel({ feedback, questionId }: { feedback: AnswerFeedback; questionId: string }) {
+  const { aiEnabled } = useAuth();
   return (
     <div className="animate-pop space-y-3">
       {feedback.is_correct ? (
@@ -180,7 +183,7 @@ export function FeedbackPanel({ feedback, questionId }: { feedback: AnswerFeedba
           )}
         </div>
       )}
-      {!feedback.is_correct && <AIExplain attemptId={feedback.attempt_id} questionId={questionId} />}
+      {aiEnabled && !feedback.is_correct && <AIExplain attemptId={feedback.attempt_id} questionId={questionId} />}
     </div>
   );
 }

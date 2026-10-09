@@ -5,6 +5,7 @@ Usage:  python -m app.seed            (drops and recreates all tables)
 
 import random
 from datetime import timedelta
+from pathlib import Path
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -36,7 +37,7 @@ from ..models import (
     Topic,
     utcnow,
 )
-from ..services import gamification
+from ..services import gamification, passwords
 from ..services.progress import recompute_topic
 from .catalog import SUBJECTS, TOPICS
 from .lessons import LESSONS
@@ -61,16 +62,34 @@ def email_for(name: str, domain: str) -> str:
     return f"{name.split()[0].lower()}@{domain}"
 
 
+def _reset_schema() -> None:
+    if engine.dialect.name == "sqlite":
+        Base.metadata.drop_all(engine)
+        Base.metadata.create_all(engine)
+        return
+    from alembic import command
+    from alembic.config import Config
+
+    with engine.begin() as conn:
+        Base.metadata.drop_all(conn)
+        conn.exec_driver_sql("DROP TABLE IF EXISTS alembic_version")
+    root = Path(__file__).resolve().parents[2]
+    cfg = Config(str(root / "alembic.ini"))
+    cfg.set_main_option("script_location", str(root / "migrations"))
+    command.upgrade(cfg, "head")
+
+
 def run(reset: bool = True) -> None:
-    if get_settings().auth_mode != "demo" or "supabase" in str(engine.url):
+    settings = get_settings()
+    if settings.auth_mode != "local" or settings.environment == "production" or "supabase" in str(engine.url):
         raise SystemExit(
-            "The demo seed drops all tables and creates profiles without auth.users rows; "
-            "it only runs with AUTH_MODE=demo against SQLite or a local Postgres. "
-            "For Supabase, apply supabase/migrations and sign up real users."
+            "The demo seed drops all tables and creates demo accounts; it only runs with AUTH_MODE=local "
+            "outside production, against SQLite or a local Postgres. For Supabase, apply the migrations and create real users."
         )
     if reset:
-        Base.metadata.drop_all(engine)
-    Base.metadata.create_all(engine)
+        _reset_schema()
+    elif engine.dialect.name == "sqlite":
+        Base.metadata.create_all(engine)
     rng = random.Random(2026)
     with SessionLocal() as db:
         gamification.ensure_badges(db)
@@ -79,8 +98,13 @@ def run(reset: bool = True) -> None:
         db.flush()
 
         subjects, topics = _curriculum(db, rng)
+        admin = Profile(email="admin@school.demo", username="admin", full_name="Puan Zarina Admin", role="admin", school_id=school.id)
+        db.add(admin)
         teachers = _teachers(db, school, other_school)
         classes, students = _classes_and_students(db, school, teachers)
+        for p in [admin, *teachers.values(), *students]:
+            p.username = p.username or p.email.split("@")[0]
+            passwords.set_password(db, p, settings.demo_password)
         _teaching(db, teachers, classes, subjects)
         for s in students:
             for subj in subjects.values():
@@ -92,8 +116,8 @@ def run(reset: bool = True) -> None:
         _assignment(db, teachers["farid"], classes["4 Bestari"], subjects["MATH"], topics["quadratic"])
         db.commit()
         counts = {m.__tablename__: db.query(m).count() for m in (Profile, Question, QuestionAttempt, StudentTopicProgress, Post)}
-    print("Seed complete:", counts)
-    print("Demo password for every account: demo1234")
+    print("DEMO DATA seeded (development only):", counts)
+    print(f"Every demo account uses the password {settings.demo_password!r}. Admin: admin@school.demo")
 
 
 def _curriculum(db: Session, rng: random.Random) -> tuple[dict[str, Subject], dict[str, Topic]]:
@@ -141,10 +165,10 @@ def _curriculum(db: Session, rng: random.Random) -> tuple[dict[str, Subject], di
 
 def _teachers(db: Session, school: School, other: School) -> dict[str, Profile]:
     t = {
-        "farid": Profile(email="farid@teacher.demo", full_name="Cikgu Farid Ismail", role="teacher", teacher_types=["class_teacher", "subject_teacher"], school_id=school.id),
-        "tan": Profile(email="tan@teacher.demo", full_name="Ms. Tan Li Wen", role="teacher", teacher_types=["subject_teacher"], school_id=school.id),
-        "rohana": Profile(email="rohana@teacher.demo", full_name="Puan Rohana Yusof", role="teacher", teacher_types=["class_teacher", "subject_teacher"], school_id=school.id),
-        "lim": Profile(email="lim@teacher.demo", full_name="Mr. Lim Chee Keong", role="teacher", teacher_types=["subject_teacher"], school_id=other.id),
+        "farid": Profile(email="farid@teacher.demo", full_name="Cikgu Farid Ismail", role="teacher", school_id=school.id),
+        "tan": Profile(email="tan@teacher.demo", full_name="Ms. Tan Li Wen", role="teacher", school_id=school.id),
+        "rohana": Profile(email="rohana@teacher.demo", full_name="Puan Rohana Yusof", role="teacher", school_id=school.id),
+        "lim": Profile(email="lim@teacher.demo", full_name="Mr. Lim Chee Keong", role="teacher", school_id=other.id),
     }
     db.add_all(t.values())
     db.flush()

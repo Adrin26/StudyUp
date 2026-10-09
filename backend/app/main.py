@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .config import get_settings
 from .database import init_db
-from .routers import ai, auth, community, exams, lessons, practice, quiz, students, subjects, teachers
+from .routers import admin, ai, auth, community, exams, lessons, practice, quiz, students, subjects, teachers
 
 
 @asynccontextmanager
@@ -15,7 +15,7 @@ async def lifespan(_: FastAPI):
 
 
 settings = get_settings()
-app = FastAPI(title=settings.app_name, version="0.1.0", lifespan=lifespan)
+app = FastAPI(title=settings.app_name, version="0.2.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origin_list,
@@ -24,10 +24,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-for r in (auth, subjects, lessons, quiz, students, practice, exams, teachers, community, ai):
+for r in (auth, admin, subjects, lessons, quiz, students, practice, exams, teachers, community, ai):
     app.include_router(r.router)
 
 
 @app.get("/api/health")
 def health():
-    return {"status": "ok", "auth_mode": settings.auth_mode, "ai_enabled": bool(settings.openai_api_key)}
+    return {"status": "ok", "auth_mode": settings.auth_mode, "ai_enabled": settings.ai_enabled}

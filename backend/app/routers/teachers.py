@@ -24,10 +24,11 @@ from ..services.access import (
     ensure_teaches_subject,
     students_in_classes,
     subject_assignments,
+    teacher_responsibilities,
     visible_student_ids,
 )
 from ..services.question_bank import filter_questions
-from ..security import require_teacher
+from ..permissions import require_teacher
 
 router = APIRouter(prefix="/api/teachers", tags=["teachers"])
 
@@ -56,7 +57,7 @@ def teacher_context(teacher: Profile = Depends(require_teacher), db: Session = D
     for ts in teaching:
         by_subject.setdefault(ts.subject_id, []).append({"id": ts.class_id, "name": classes[ts.class_id].name})
     return {
-        "teacher_types": teacher.teacher_types or [],
+        "teacher_types": teacher_responsibilities(db, teacher),
         "homeroom_classes": [{"id": c.id, "name": c.name, "form": c.form, "student_count": len(_class_students(db, c.id))} for c in homeroom],
         "subjects": [
             {"id": sid, "name": subjects[sid].name, "color": subjects[sid].color, "icon": subjects[sid].icon, "classes": cls}

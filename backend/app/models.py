@@ -10,6 +10,7 @@ from datetime import date, datetime, timezone
 from sqlalchemy import (
     JSON,
     Boolean,
+    CheckConstraint,
     Date,
     DateTime,
     Float,
@@ -68,13 +69,24 @@ class School(Base):
     state: Mapped[str | None] = mapped_column(String(100))
 
 
+ROLES = ("admin", "teacher", "student")
+ACCOUNT_STATUSES = ("active", "disabled")
+
+
 class Profile(Base):
     __tablename__ = "profiles"
+    __table_args__ = (
+        CheckConstraint("role IN ('admin', 'teacher', 'student')", name="ck_profiles_role"),
+        CheckConstraint("status IN ('active', 'disabled')", name="ck_profiles_status"),
+    )
     id: Mapped[str] = pk()
     email: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    username: Mapped[str | None] = mapped_column(String(60), unique=True, index=True)
     full_name: Mapped[str] = mapped_column(String(200))
-    role: Mapped[str] = mapped_column(String(20), default="student")  # student | teacher | admin
-    teacher_types: Mapped[list] = mapped_column(JSON, default=list)  # class_teacher | subject_teacher
+    # Class teacher / subject teacher are not roles: they are derived from
+    # classes.class_teacher_id and teacher_subjects (see services/access.py).
+    role: Mapped[str] = mapped_column(String(20), default="student")
+    status: Mapped[str] = mapped_column(String(20), default="active", server_default="active", index=True)
     school_id: Mapped[str | None] = mapped_column(ForeignKey("schools.id"))
     form: Mapped[int | None] = mapped_column(Integer)
     avatar_url: Mapped[str | None] = mapped_column(String(500))
@@ -82,7 +94,46 @@ class Profile(Base):
     current_streak: Mapped[int] = mapped_column(Integer, default=0)
     longest_streak: Mapped[int] = mapped_column(Integer, default=0)
     last_active_date: Mapped[date | None] = mapped_column(Date)
+    last_login_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
+    updated_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), onupdate=utcnow)
+
+    @property
+    def is_active(self) -> bool:
+        return self.status == "active"
+
+
+class LocalCredential(Base):
+    """Password hashes for AUTH_MODE=local. Stands in for Supabase's auth.users; unused on Supabase."""
+
+    __tablename__ = "local_credentials"
+    profile_id: Mapped[str] = mapped_column(ForeignKey("profiles.id", ondelete="CASCADE"), primary_key=True)
+    password_hash: Mapped[str] = mapped_column(String(255))
+    password_changed_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
+
+
+class PasswordResetToken(Base):
+    __tablename__ = "password_reset_tokens"
+    id: Mapped[str] = pk()
+    profile_id: Mapped[str] = mapped_column(ForeignKey("profiles.id", ondelete="CASCADE"), index=True)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True)  # sha256 hex; the raw token is never stored
+    expires_at: Mapped[datetime] = mapped_column(UTCDateTime())
+    used_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
+    requested_by: Mapped[str | None] = mapped_column(ForeignKey("profiles.id", ondelete="SET NULL"))
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
+
+
+class AuditLog(Base):
+    __tablename__ = "audit_logs"
+    id: Mapped[str] = pk()
+    actor_id: Mapped[str | None] = mapped_column(ForeignKey("profiles.id", ondelete="SET NULL"), index=True)  # None = system/CLI
+    action: Mapped[str] = mapped_column(String(60), index=True)  # e.g. user.create, auth.password_reset
+    resource_type: Mapped[str] = mapped_column(String(40))
+    resource_id: Mapped[str | None] = mapped_column(String(64))
+    school_id: Mapped[str | None] = mapped_column(ForeignKey("schools.id", ondelete="SET NULL"), index=True)
+    details: Mapped[dict] = mapped_column(JSON, default=dict)  # never passwords, tokens or secrets
+    ip_address: Mapped[str | None] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow, index=True)
 
 
 class SchoolClass(Base):

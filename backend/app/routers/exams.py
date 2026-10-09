@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 from ..database import get_db
 from ..models import Profile, Question, QuestionSet, QuestionSetQuestion, Subject
 from ..schemas import ExamGenerateIn, ExamReplaceIn, ExamSaveIn
-from ..security import require_teacher
+from ..permissions import require_teacher
 from ..services import randomizer
 from ..services.access import ensure_teaches_subject
 from ..services.exam_generator import assign_marks, generate_exam, pick_replacement

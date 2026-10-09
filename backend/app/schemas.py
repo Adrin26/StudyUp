@@ -6,9 +6,23 @@ from pydantic import BaseModel, Field
 Difficulty = Literal["easy", "medium", "hard"]
 
 
-class DemoLoginIn(BaseModel):
-    email: str
-    password: str
+class LoginIn(BaseModel):
+    identifier: str = Field(min_length=1, max_length=255, description="Email or username")
+    password: str = Field(min_length=1, max_length=256)
+
+
+class ForgotPasswordIn(BaseModel):
+    identifier: str = Field(min_length=1, max_length=255)
+
+
+class ResetPasswordIn(BaseModel):
+    token: str = Field(min_length=20, max_length=200)
+    new_password: str = Field(max_length=256)
+
+
+class ChangePasswordIn(BaseModel):
+    current_password: str = Field(min_length=1, max_length=256)
+    new_password: str = Field(max_length=256)
 
 
 class LessonProgressIn(BaseModel):

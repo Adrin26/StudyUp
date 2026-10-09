@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..models import Assignment, AssignmentStudent, Badge, Notification, Profile, StudentBadge, Subject, Topic
-from ..security import require_student
+from ..permissions import require_student
 from ..services.progress import enrolled_subjects, student_stats, subject_progress, topic_progress_map, topic_view
 from ..services.recommendations import recommend
 

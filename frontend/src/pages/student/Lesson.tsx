@@ -8,12 +8,14 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Progress } from "@/components/ui/progress";
 import { api } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
 import { useApi } from "@/lib/useApi";
 import type { LessonData, QuizSession } from "@/types";
 
 export default function LessonPage() {
   const { topicId } = useParams();
   const navigate = useNavigate();
+  const { aiEnabled } = useAuth();
   const { data: lesson, error, loading, reload } = useApi<LessonData>(`/api/lessons/topic/${topicId}`);
   const [index, setIndex] = useState(0);
   const [assistantOpen, setAssistantOpen] = useState(false);
@@ -75,9 +77,11 @@ export default function LessonPage() {
           </div>
           <Progress value={((index + 1) / lesson.slides.length) * 100} />
         </div>
-        <Button variant="secondary" size="sm" className="lg:hidden" onClick={() => setAssistantOpen(true)}>
-          <Bot /> Ask AI
-        </Button>
+        {aiEnabled && (
+          <Button variant="secondary" size="sm" className="lg:hidden" onClick={() => setAssistantOpen(true)}>
+            <Bot /> Ask AI
+          </Button>
+        )}
       </header>
 
       <div className="flex min-h-0 flex-1">
@@ -86,9 +90,11 @@ export default function LessonPage() {
             <SlideView slide={slide} />
           </div>
         </main>
-        <aside className="hidden w-96 border-l bg-card lg:block">
-          <AIAssistant topicId={lesson.topic_id} slideId={slide.id} slideTitle={slide.title} />
-        </aside>
+        {aiEnabled && (
+          <aside className="hidden w-96 border-l bg-card lg:block">
+            <AIAssistant topicId={lesson.topic_id} slideId={slide.id} slideTitle={slide.title} />
+          </aside>
+        )}
       </div>
 
       <footer className="flex items-center justify-between gap-3 border-t bg-card px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
@@ -111,7 +117,7 @@ export default function LessonPage() {
         )}
       </footer>
 
-      <Dialog open={assistantOpen} onOpenChange={setAssistantOpen}>
+      <Dialog open={aiEnabled && assistantOpen} onOpenChange={setAssistantOpen}>
         <DialogContent className="flex h-[85vh] flex-col gap-0 overflow-hidden p-0">
           <DialogTitle className="sr-only">AI Study Coach</DialogTitle>
           <AIAssistant topicId={lesson.topic_id} slideId={slide.id} slideTitle={slide.title} />

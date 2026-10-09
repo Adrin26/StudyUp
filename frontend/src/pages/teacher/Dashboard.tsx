@@ -91,6 +91,7 @@ export default function TeacherDashboard() {
 }
 
 function Alerts() {
+  const { aiEnabled } = useAuth();
   const { data: alerts } = useApi<Alert[]>("/api/teachers/alerts");
   const [expanded, setExpanded] = useState<string | null>(null);
   if (!alerts || alerts.length === 0) return null;
@@ -142,7 +143,7 @@ function Alerts() {
                   }
                 />
               </div>
-              <TeachingIdeas alert={a} />
+              {aiEnabled && <TeachingIdeas alert={a} />}
             </Card>
           );
         })}

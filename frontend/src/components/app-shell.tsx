@@ -1,20 +1,28 @@
-import { NavLink, Outlet, useNavigate } from "react-router-dom";
-import { BookOpenCheck, ClipboardList, Home, LogOut, MessagesSquare, Sparkles, Target, Users } from "lucide-react";
+import { Link, NavLink, Outlet, useNavigate } from "react-router-dom";
+import { BookOpenCheck, ClipboardList, GraduationCap, Home, LayoutDashboard, LogOut, MessagesSquare, ScrollText, Target, Users } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
+import type { Role } from "@/types";
 
-const STUDENT_NAV = [
-  { to: "/", label: "Home", icon: Home, end: true },
-  { to: "/practice", label: "Practice", icon: Target },
-  { to: "/community", label: "Community", icon: MessagesSquare },
-];
+const NAV: Record<Role, { to: string; label: string; icon: typeof Home; end?: boolean }[]> = {
+  student: [
+    { to: "/", label: "Home", icon: Home, end: true },
+    { to: "/practice", label: "Practice", icon: Target },
+    { to: "/community", label: "Community", icon: MessagesSquare },
+  ],
+  teacher: [
+    { to: "/teacher", label: "Dashboard", icon: Users, end: true },
+    { to: "/teacher/exams", label: "Exams", icon: ClipboardList },
+    { to: "/teacher/community", label: "Teachers", icon: MessagesSquare },
+    { to: "/teacher/student-community", label: "Students", icon: BookOpenCheck },
+  ],
+  admin: [
+    { to: "/admin", label: "Dashboard", icon: LayoutDashboard, end: true },
+    { to: "/admin/audit-log", label: "Audit log", icon: ScrollText },
+  ],
+};
 
-const TEACHER_NAV = [
-  { to: "/teacher", label: "Dashboard", icon: Users, end: true },
-  { to: "/teacher/exams", label: "Exams", icon: ClipboardList },
-  { to: "/teacher/community", label: "Teachers", icon: MessagesSquare },
-  { to: "/teacher/student-community", label: "Students", icon: BookOpenCheck },
-];
+const ROLE_LABEL: Record<Role, string> = { admin: "Administrator", teacher: "Teacher", student: "Student" };
 
 function initials(name: string) {
   return name
@@ -30,7 +38,7 @@ export function AppShell() {
   const { user, signOut } = useAuth();
   const navigate = useNavigate();
   if (!user) return null;
-  const nav = user.role === "student" ? STUDENT_NAV : TEACHER_NAV;
+  const nav = NAV[user.role];
 
   const logout = async () => {
     await signOut();
@@ -40,7 +48,7 @@ export function AppShell() {
   return (
     <div className="min-h-dvh lg:pl-64">
       <aside className="fixed inset-y-0 left-0 hidden w-64 flex-col border-r bg-card/80 p-4 backdrop-blur lg:flex">
-        <Brand />
+        <Brand school={user.school} />
         <nav className="mt-8 flex flex-1 flex-col gap-1" aria-label="Main">
           {nav.map((item) => (
             <NavLink
@@ -60,11 +68,13 @@ export function AppShell() {
           ))}
         </nav>
         <div className="flex items-center gap-3 rounded-2xl bg-muted/60 p-3">
-          <div className="flex size-10 items-center justify-center rounded-full bg-gradient-to-br from-amber-300 to-pink-400 text-sm font-bold text-white">{initials(user.full_name)}</div>
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-sm font-bold">{user.full_name}</p>
-            <p className="truncate text-xs text-muted-foreground">{user.class_name ?? (user.role === "teacher" ? "Teacher" : user.role)}</p>
-          </div>
+          <Link to="/profile" className="flex min-w-0 flex-1 items-center gap-3 rounded-xl hover:opacity-80" aria-label="Profile and settings">
+            <Avatar name={user.full_name} />
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-bold">{user.full_name}</p>
+              <p className="truncate text-xs text-muted-foreground">{user.class_name ?? ROLE_LABEL[user.role]}</p>
+            </div>
+          </Link>
           <button onClick={logout} className="rounded-lg p-2 text-muted-foreground hover:bg-card hover:text-foreground" aria-label="Sign out">
             <LogOut className="size-4" />
           </button>
@@ -72,10 +82,15 @@ export function AppShell() {
       </aside>
 
       <header className="sticky top-0 z-30 flex items-center justify-between border-b bg-card/80 px-4 py-3 backdrop-blur lg:hidden">
-        <Brand />
-        <button onClick={logout} className="rounded-lg p-2 text-muted-foreground hover:bg-muted" aria-label="Sign out">
-          <LogOut className="size-5" />
-        </button>
+        <Brand school={user.school} />
+        <div className="flex items-center gap-1">
+          <Link to="/profile" aria-label="Profile and settings">
+            <Avatar name={user.full_name} small />
+          </Link>
+          <button onClick={logout} className="rounded-lg p-2 text-muted-foreground hover:bg-muted" aria-label="Sign out">
+            <LogOut className="size-5" />
+          </button>
+        </div>
       </header>
 
       <main className="mx-auto max-w-6xl px-4 pt-6 pb-28 sm:px-6 lg:px-8 lg:pb-10">
@@ -105,15 +120,23 @@ export function AppShell() {
   );
 }
 
-export function Brand() {
+function Avatar({ name, small }: { name: string; small?: boolean }) {
+  return (
+    <div className={cn("flex shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-amber-300 to-pink-400 font-bold text-white", small ? "size-8 text-xs" : "size-10 text-sm")}>
+      {initials(name)}
+    </div>
+  );
+}
+
+export function Brand({ school }: { school?: string | null }) {
   return (
     <div className="flex items-center gap-2.5">
       <div className="flex size-9 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500 to-blue-500 text-white shadow-md shadow-violet-500/30">
-        <Sparkles className="size-5" />
+        <GraduationCap className="size-5" />
       </div>
-      <div className="leading-tight">
-        <p className="text-sm font-extrabold tracking-tight">AI Study Coach</p>
-        <p className="text-[11px] font-medium text-muted-foreground">SPM Learning Hub</p>
+      <div className="min-w-0 leading-tight">
+        <p className="text-sm font-extrabold tracking-tight">MINDA</p>
+        <p className="truncate text-[11px] font-medium text-muted-foreground">{school ?? "Learn. Practice. Master."}</p>
       </div>
     </div>
   );

@@ -4,7 +4,8 @@ from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..models import Lesson, LessonProgress, Profile, Question, QuestionSet, Subject, Topic
-from ..security import get_current_user, require_teacher
+from ..permissions import require_teacher
+from ..security import get_current_user
 from ..services.progress import enrolled_subjects, subject_progress, topic_progress_map, topic_view
 from ..services.question_bank import full_question
 from ..services.access import ensure_teaches_subject

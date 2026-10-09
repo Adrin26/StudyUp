@@ -5,7 +5,8 @@ from sqlalchemy.orm import Session
 from ..database import get_db
 from ..models import AIInteraction, Lesson, LessonSlide, Profile, Question, QuestionAttempt, Topic
 from ..schemas import ExplainIn, FeedbackIn, HintIn, LessonHelpIn, SimilarCheckIn, SimilarQuestionIn, TeacherSuggestIn
-from ..security import get_current_user, require_student, require_teacher
+from ..permissions import require_ai_enabled, require_student, require_teacher
+from ..security import get_current_user
 from ..services.access import ensure_can_view_student, ensure_teaches_subject, visible_student_ids
 from ..services.grading import display_answer, display_given, is_correct
 from ..services.openai_service import (
@@ -23,7 +24,7 @@ from ..services.openai_service import (
 from ..services.question_bank import public_question
 from ..services.recommendations import recommend
 
-router = APIRouter(prefix="/api/ai", tags=["ai"])
+router = APIRouter(prefix="/api/ai", tags=["ai"], dependencies=[Depends(require_ai_enabled)])
 
 
 def _slide_text(slide: LessonSlide | None) -> str:

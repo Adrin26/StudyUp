@@ -21,6 +21,18 @@ def subject_assignments(db: Session, teacher: Profile) -> list[TeacherSubject]:
     return list(db.scalars(select(TeacherSubject).where(TeacherSubject.teacher_id == teacher.id)))
 
 
+def teacher_responsibilities(db: Session, teacher: Profile) -> list[str]:
+    """Derived from current assignments; there is no stored class/subject-teacher flag."""
+    if teacher.role != "teacher":
+        return []
+    out = []
+    if db.scalar(select(SchoolClass.id).where(SchoolClass.class_teacher_id == teacher.id).limit(1)):
+        out.append("class_teacher")
+    if db.scalar(select(TeacherSubject.id).where(TeacherSubject.teacher_id == teacher.id).limit(1)):
+        out.append("subject_teacher")
+    return out
+
+
 def students_in_classes(db: Session, class_ids: list[str]) -> list[str]:
     if not class_ids:
         return []

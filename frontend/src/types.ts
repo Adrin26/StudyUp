@@ -5,12 +5,41 @@ export type LevelKey = "not_started" | "needs_attention" | "developing" | "good"
 export interface User {
   id: string;
   email: string;
+  username: string | null;
   full_name: string;
   role: Role;
+  status: "active" | "disabled";
+  /** Derived by the backend from current class and subject assignments. */
   teacher_types: ("class_teacher" | "subject_teacher")[];
   school: string | null;
   class_name: string | null;
   form: number | null;
+  last_login_at: string | null;
+}
+
+export interface AuditEntry {
+  id: string;
+  action: string;
+  resource_type: string;
+  resource_id: string | null;
+  details: Record<string, unknown>;
+  ip_address: string | null;
+  created_at: string;
+  actor: { id: string; name: string; role: Role } | null;
+}
+
+export interface AdminOverview {
+  counts: {
+    active_students: number;
+    active_teachers: number;
+    classes: number;
+    subjects: number;
+    topics: number;
+    active_assignments: number;
+  };
+  alerts: { kind: string; message: string }[];
+  recent_accounts: { id: string; name: string; role: Role; status: string; created_at: string }[];
+  recent_activity: AuditEntry[];
 }
 
 export interface Level {

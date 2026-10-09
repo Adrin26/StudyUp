@@ -1,9 +1,13 @@
+import logging
 from collections.abc import Iterator
 
-from sqlalchemy import create_engine, event
+from sqlalchemy import create_engine, event, inspect
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 from .config import get_settings
+
+
+log = logging.getLogger("minda.db")
 
 
 class Base(DeclarativeBase):
@@ -37,6 +41,12 @@ def get_db() -> Iterator[Session]:
 
 
 def init_db() -> None:
+    """SQLite (tests, quick demos) is created from the models; PostgreSQL only via Alembic."""
     from . import models  # noqa: F401  (register models)
 
-    Base.metadata.create_all(bind=engine)
+    if engine.dialect.name == "sqlite":
+        Base.metadata.create_all(bind=engine)
+        return
+    with engine.connect() as conn:
+        if not inspect(conn).has_table("alembic_version"):
+            log.warning("Database has no migrations applied. Run `alembic upgrade head` in backend/.")

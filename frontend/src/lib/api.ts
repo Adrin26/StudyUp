@@ -1,11 +1,13 @@
 const BASE = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, "") ?? "";
-const TOKEN_KEY = "studyup.token";
+const TOKEN_KEY = "minda.token";
 
 export class ApiError extends Error {
   status: number;
-  constructor(status: number, message: string) {
+  code?: string;
+  constructor(status: number, message: string, code?: string) {
     super(message);
     this.status = status;
+    this.code = code;
   }
 }
 
@@ -15,26 +17,47 @@ export const tokenStore = {
   clear: () => localStorage.removeItem(TOKEN_KEY),
 };
 
-let unauthorizedHandler: (() => void) | null = null;
-export function onUnauthorized(fn: () => void) {
-  unauthorizedHandler = fn;
+/** Called when the server says the session can no longer be used (expired, or account disabled). */
+let sessionEndedHandler: ((error: ApiError) => void) | null = null;
+export function onSessionEnded(fn: (error: ApiError) => void) {
+  sessionEndedHandler = fn;
+}
+
+function toError(status: number, statusText: string, data: unknown): ApiError {
+  const detail = (data as { detail?: unknown } | null)?.detail;
+  if (typeof detail === "string") return new ApiError(status, detail);
+  if (detail && typeof detail === "object" && "message" in detail) {
+    const d = detail as { message: string; code?: string };
+    return new ApiError(status, d.message, d.code);
+  }
+  if (Array.isArray(detail)) {
+    const first = detail[0] as { msg?: string } | undefined;
+    return new ApiError(status, first?.msg ?? "Please check the form and try again.");
+  }
+  return new ApiError(status, statusText || "Request failed");
 }
 
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   const token = tokenStore.get();
   if (token) headers.Authorization = `Bearer ${token}`;
-  const res = await fetch(`${BASE}${path}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
-  if (res.status === 401 && unauthorizedHandler) unauthorizedHandler();
+  let res: Response;
+  try {
+    res = await fetch(`${BASE}${path}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
+  } catch {
+    throw new ApiError(0, "Cannot reach the server. Check your connection and try again.");
+  }
   if (!res.ok) {
-    let message = res.statusText;
+    let data: unknown = null;
     try {
-      const data = await res.json();
-      message = typeof data.detail === "string" ? data.detail : JSON.stringify(data.detail ?? data);
+      data = await res.json();
     } catch {
       /* non-JSON error body */
     }
-    throw new ApiError(res.status, message);
+    const error = toError(res.status, res.statusText, data);
+    const sessionEnded = token && (res.status === 401 || error.code === "account_disabled");
+    if (sessionEnded && sessionEndedHandler) sessionEndedHandler(error);
+    throw error;
   }
   return res.status === 204 ? (undefined as T) : ((await res.json()) as T);
 }

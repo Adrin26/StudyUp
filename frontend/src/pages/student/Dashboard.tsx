@@ -240,6 +240,7 @@ function recLink(r: Recommendation): string {
 
 function Recommendations({ items }: { items: Recommendation[] }) {
   const navigate = useNavigate();
+  const { aiEnabled } = useAuth();
   const [summary, setSummary] = useState<AIResponse<{ message: string }> | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -261,7 +262,7 @@ function Recommendations({ items }: { items: Recommendation[] }) {
           </CardTitle>
           <CardDescription>Based on your recent performance.</CardDescription>
         </div>
-        {items.length > 0 && !summary && (
+        {aiEnabled && items.length > 0 && !summary && (
           <Button size="sm" variant="secondary" onClick={explain} disabled={busy}>
             {busy ? <Spinner /> : <Sparkles />} Why these?
           </Button>

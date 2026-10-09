@@ -5,7 +5,8 @@ from sqlalchemy.orm import Session
 from ..database import get_db
 from ..models import Assignment, AssignmentStudent, Profile, Question, QuestionSet, QuestionSetQuestion, Subject, Topic, utcnow
 from ..schemas import PracticeAnswerIn, PracticeGenerateIn
-from ..security import get_current_user, require_student
+from ..permissions import require_student
+from ..security import get_current_user
 from ..services import randomizer
 from ..services.gamification import award_badges
 from ..services.progress import record_attempt, recompute_topic

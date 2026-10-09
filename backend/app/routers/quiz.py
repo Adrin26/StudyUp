@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from ..database import get_db
 from ..models import Profile, Question, QuestionAttempt, QuestionSet, QuestionSetQuestion, Topic, utcnow
 from ..schemas import AnswerIn, QuizStartIn, SetIdIn
-from ..security import require_student
+from ..permissions import require_student
 from ..services import gamification, randomizer
 from ..services.grading import display_answer, display_given
 from ..services.mastery import mastery_level

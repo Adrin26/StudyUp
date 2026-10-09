@@ -12,7 +12,7 @@ def _subject_id(client, headers, code):
 
 def test_requires_auth(client):
     assert client.get("/api/students/me/dashboard").status_code == 401
-    bad = client.post("/api/auth/demo-login", json={"email": "aisyah@student.demo", "password": "nope"})
+    bad = client.post("/api/auth/login", json={"identifier": "aisyah@student.demo", "password": "nope"})
     assert bad.status_code == 401
 
 
