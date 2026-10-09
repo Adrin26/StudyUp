@@ -140,7 +140,7 @@ function MobileNav({ nav }: { nav: NavItem[] }) {
       {open && (
         <>
           <button className="fixed inset-0 z-30 bg-black/20 lg:hidden" aria-label="Close menu" onClick={() => setOpen(false)} />
-          <div id="more-nav" className="fixed inset-x-3 bottom-[calc(4.5rem+env(safe-area-inset-bottom))] z-40 grid grid-cols-3 gap-1 rounded-2xl border bg-card p-2 shadow-xl lg:hidden">
+          <div id="more-nav" className="fixed inset-x-3 bottom-[calc(5.25rem+env(safe-area-inset-bottom))] z-40 grid grid-cols-3 gap-1 rounded-2xl border bg-card p-2 shadow-xl lg:hidden">
             {overflow.map((item) => (
               <NavLink
                 key={item.to}
