@@ -3,8 +3,9 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..models import Assignment, AuditLog, Profile, SchoolClass, Subject, TeacherSubject, Topic
+from ..models import Assignment, AuditLog, ClassStudent, Lesson, Profile, Question, SchoolClass, Subject, TeacherSubject, Topic
 from ..permissions import require_admin
+from ..services import school_scope
 from ..services.gamification import today_my
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
@@ -34,26 +35,62 @@ def overview(admin: Profile = Depends(require_admin), db: Session = Depends(get_
     def members(role: str):
         return db.scalar(select(func.count()).select_from(Profile).where(Profile.school_id == admin.school_id, Profile.role == role, Profile.status == "active"))
 
-    school_classes = select(SchoolClass.id).where(SchoolClass.school_id == admin.school_id)
+    active_classes = select(SchoolClass).where(SchoolClass.school_id == admin.school_id, SchoolClass.status == "active")
     school_teachers = select(Profile.id).where(Profile.school_id == admin.school_id, Profile.role == "teacher")
     today = today_my()
+    year = school_scope.current_year(db, admin.school_id)
 
     classes_without_teacher = list(db.scalars(
-        select(SchoolClass.name).where(SchoolClass.school_id == admin.school_id, SchoolClass.class_teacher_id.is_(None)).order_by(SchoolClass.name)
+        active_classes.with_only_columns(SchoolClass.name).where(SchoolClass.class_teacher_id.is_(None)).order_by(SchoolClass.name)
     ))
     classes_without_subjects = list(db.scalars(
-        select(SchoolClass.name)
-        .where(SchoolClass.school_id == admin.school_id, ~SchoolClass.id.in_(select(TeacherSubject.class_id)))
-        .order_by(SchoolClass.name)
+        active_classes.with_only_columns(SchoolClass.name).where(~SchoolClass.id.in_(select(TeacherSubject.class_id))).order_by(SchoolClass.name)
     ))
     subjects_without_topics = list(db.scalars(
         select(Subject.name).where(~Subject.id.in_(select(Topic.subject_id))).order_by(Subject.sort_order)
     ))
-    alerts = (
-        [{"kind": "class_without_teacher", "message": f"Class {n} has no class teacher"} for n in classes_without_teacher]
-        + [{"kind": "class_without_subjects", "message": f"Class {n} has no subject teachers assigned"} for n in classes_without_subjects]
-        + [{"kind": "subject_without_topics", "message": f"{n} has no topics yet"} for n in subjects_without_topics]
+    alerts = [{"kind": "no_current_year", "message": "No current academic year is set", "link": "/admin/school"}] if year is None else []
+    alerts += (
+        [{"kind": "class_without_teacher", "message": f"Class {n} has no class teacher", "link": "/admin/classes"} for n in classes_without_teacher]
+        + [{"kind": "class_without_subjects", "message": f"Class {n} has no subject teachers assigned", "link": "/admin/teacher-assignments"} for n in classes_without_subjects]
+        + [{"kind": "subject_without_topics", "message": f"{n} has no topics yet", "link": None} for n in subjects_without_topics]
     )
+    if year is not None:
+        placed = (
+            select(ClassStudent.student_id)
+            .join(SchoolClass, SchoolClass.id == ClassStudent.class_id)
+            .where(SchoolClass.academic_year_id == year.id, ClassStudent.status == "active")
+        )
+        unplaced = db.scalar(select(func.count()).select_from(Profile).where(
+            Profile.school_id == admin.school_id, Profile.role == "student", Profile.status == "active", Profile.id.not_in(placed)
+        ))
+        if unplaced:
+            alerts.append({"kind": "students_without_class", "message": f"{unplaced} active student{'s' if unplaced != 1 else ''} not in a class for {year.name}", "link": "/admin/users?role=student"})
+    idle_teachers = db.scalar(select(func.count()).select_from(Profile).where(
+        Profile.school_id == admin.school_id, Profile.role == "teacher", Profile.status == "active",
+        Profile.id.not_in(select(TeacherSubject.teacher_id)),
+        Profile.id.not_in(select(SchoolClass.class_teacher_id).where(SchoolClass.class_teacher_id.is_not(None))),
+    ))
+    if idle_teachers:
+        alerts.append({"kind": "teachers_without_assignments", "message": f"{idle_teachers} active teacher{'s' if idle_teachers != 1 else ''} with no class or subject", "link": "/admin/teacher-assignments"})
+
+    lessons_by_subject = dict(db.execute(
+        select(Topic.subject_id, func.count(func.distinct(Topic.id))).join(Lesson, Lesson.topic_id == Topic.id).group_by(Topic.subject_id)
+    ).all())
+    questions_by_subject = dict(db.execute(
+        select(Topic.subject_id, func.count(func.distinct(Topic.id))).join(Question, Question.topic_id == Topic.id)
+        .where(Question.status == "published").group_by(Topic.subject_id)
+    ).all())
+    topics_by_subject = dict(db.execute(select(Topic.subject_id, func.count()).group_by(Topic.subject_id)).all())
+    content = [
+        {
+            "subject": s.name,
+            "topics": topics_by_subject.get(s.id, 0),
+            "topics_with_lessons": lessons_by_subject.get(s.id, 0),
+            "topics_with_questions": questions_by_subject.get(s.id, 0),
+        }
+        for s in db.scalars(select(Subject).order_by(Subject.sort_order))
+    ]
 
     recent_accounts = db.scalars(
         select(Profile).where(Profile.school_id == admin.school_id).order_by(Profile.created_at.desc()).limit(5)
@@ -61,10 +98,12 @@ def overview(admin: Profile = Depends(require_admin), db: Session = Depends(get_
     recent_activity = db.execute(_school_audit(admin).order_by(AuditLog.created_at.desc()).limit(8)).all()
 
     return {
+        "current_academic_year": {"id": year.id, "name": year.name, "start_date": year.start_date, "end_date": year.end_date} if year else None,
+        "content": content,
         "counts": {
             "active_students": members("student"),
             "active_teachers": members("teacher"),
-            "classes": db.scalar(select(func.count()).select_from(school_classes.subquery())),
+            "classes": db.scalar(select(func.count()).select_from(active_classes.subquery())),
             "subjects": db.scalar(select(func.count()).select_from(Subject)),
             "topics": db.scalar(select(func.count()).select_from(Topic)),
             "active_assignments": db.scalar(

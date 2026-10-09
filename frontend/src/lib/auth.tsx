@@ -23,6 +23,7 @@ interface AuthState {
   clearNotice: () => void;
   signIn: (identifier: string, password: string) => Promise<User>;
   signOut: () => Promise<void>;
+  refreshUser: () => Promise<void>;
   /** Replace the stored token, e.g. after a password change issues a new one. */
   setToken: (token: string) => void;
 }
@@ -101,6 +102,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return res.user;
   }, []);
 
+  const refreshUser = useCallback(async () => {
+    setUser(await api.get<User>("/api/auth/me"));
+  }, []);
+
   const value = useMemo(
     () => ({
       user,
@@ -111,9 +116,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       clearNotice: () => setNotice(null),
       signIn,
       signOut,
+      refreshUser,
       setToken: tokenStore.set,
     }),
-    [user, loading, config.ai_enabled, notice, signIn, signOut],
+    [user, loading, config.ai_enabled, notice, signIn, signOut, refreshUser],
   );
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

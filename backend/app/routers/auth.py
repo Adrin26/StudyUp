@@ -4,11 +4,12 @@ from sqlalchemy.orm import Session
 
 from ..config import get_settings
 from ..database import get_db
-from ..models import ClassStudent, LocalCredential, Profile, School, SchoolClass, utcnow
+from ..models import LocalCredential, Profile, School, utcnow
 from ..schemas import ChangePasswordIn, ForgotPasswordIn, LoginIn, ResetPasswordIn
 from ..security import account_disabled, create_access_token, get_current_user
 from ..services import audit, mailer, passwords
 from ..services.access import teacher_responsibilities
+from ..services.enrolment import current_class
 from ..services.rate_limit import limiter, too_many
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
@@ -19,11 +20,7 @@ RECOVERY_MESSAGE = "If an active account matches, a password reset link has been
 
 def profile_payload(db: Session, user: Profile) -> dict:
     school = db.get(School, user.school_id) if user.school_id else None
-    class_name = None
-    if user.role == "student":
-        class_name = db.scalar(
-            select(SchoolClass.name).join(ClassStudent, ClassStudent.class_id == SchoolClass.id).where(ClassStudent.student_id == user.id)
-        )
+    klass = current_class(db, user.id) if user.role == "student" else None
     return {
         "id": user.id,
         "email": user.email,
@@ -33,7 +30,8 @@ def profile_payload(db: Session, user: Profile) -> dict:
         "status": user.status,
         "teacher_types": teacher_responsibilities(db, user),
         "school": school.name if school else None,
-        "class_name": class_name,
+        "school_logo_url": school.logo_url if school else None,
+        "class_name": klass.name if klass else None,
         "form": user.form,
         "avatar_url": user.avatar_url,
         "last_login_at": user.last_login_at,

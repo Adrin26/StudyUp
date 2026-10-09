@@ -21,9 +21,15 @@ def _make_engine(url: str):
     eng = create_engine(url, **kwargs)
     if url.startswith("sqlite"):
 
+        # Let SQLAlchemy own transactions so SAVEPOINTs (begin_nested) work with pysqlite.
         @event.listens_for(eng, "connect")
-        def _enable_fk(dbapi_conn, _):
+        def _on_connect(dbapi_conn, _):
+            dbapi_conn.isolation_level = None
             dbapi_conn.execute("PRAGMA foreign_keys=ON")
+
+        @event.listens_for(eng, "begin")
+        def _on_begin(conn):
+            conn.exec_driver_sql("BEGIN")
 
     return eng
 

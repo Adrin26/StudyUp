@@ -12,13 +12,19 @@ from ..models import ClassStudent, Profile, SchoolClass, TeacherSubject
 
 
 def class_teacher_class_ids(db: Session, teacher: Profile) -> list[str]:
+    """Active classes the user is class teacher of. Archived classes grant no access."""
+    stmt = select(SchoolClass.id).where(SchoolClass.status == "active")
     if teacher.role == "admin":
-        return list(db.scalars(select(SchoolClass.id)))
-    return list(db.scalars(select(SchoolClass.id).where(SchoolClass.class_teacher_id == teacher.id)))
+        return list(db.scalars(stmt.where(SchoolClass.school_id == teacher.school_id)))
+    return list(db.scalars(stmt.where(SchoolClass.class_teacher_id == teacher.id)))
 
 
 def subject_assignments(db: Session, teacher: Profile) -> list[TeacherSubject]:
-    return list(db.scalars(select(TeacherSubject).where(TeacherSubject.teacher_id == teacher.id)))
+    return list(db.scalars(
+        select(TeacherSubject)
+        .join(SchoolClass, SchoolClass.id == TeacherSubject.class_id)
+        .where(TeacherSubject.teacher_id == teacher.id, SchoolClass.status == "active")
+    ))
 
 
 def teacher_responsibilities(db: Session, teacher: Profile) -> list[str]:
@@ -26,17 +32,20 @@ def teacher_responsibilities(db: Session, teacher: Profile) -> list[str]:
     if teacher.role != "teacher":
         return []
     out = []
-    if db.scalar(select(SchoolClass.id).where(SchoolClass.class_teacher_id == teacher.id).limit(1)):
+    if class_teacher_class_ids(db, teacher):
         out.append("class_teacher")
-    if db.scalar(select(TeacherSubject.id).where(TeacherSubject.teacher_id == teacher.id).limit(1)):
+    if subject_assignments(db, teacher):
         out.append("subject_teacher")
     return out
 
 
 def students_in_classes(db: Session, class_ids: list[str]) -> list[str]:
+    """Students currently enrolled; transferred or withdrawn students no longer count."""
     if not class_ids:
         return []
-    return list(db.scalars(select(ClassStudent.student_id).where(ClassStudent.class_id.in_(class_ids)).distinct()))
+    return list(db.scalars(
+        select(ClassStudent.student_id).where(ClassStudent.class_id.in_(class_ids), ClassStudent.status == "active").distinct()
+    ))
 
 
 def visible_student_ids(db: Session, teacher: Profile, subject_id: str | None = None) -> set[str]:

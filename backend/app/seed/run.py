@@ -4,7 +4,7 @@ Usage:  python -m app.seed            (drops and recreates all tables)
 """
 
 import random
-from datetime import timedelta
+from datetime import date, timedelta
 from pathlib import Path
 
 from sqlalchemy import select
@@ -13,6 +13,8 @@ from sqlalchemy.orm import Session
 from ..config import get_settings
 from ..database import Base, SessionLocal, engine
 from ..models import (
+    AcademicTerm,
+    AcademicYear,
     Assignment,
     AssignmentStudent,
     ClassStudent,
@@ -93,7 +95,11 @@ def run(reset: bool = True) -> None:
     rng = random.Random(2026)
     with SessionLocal() as db:
         gamification.ensure_badges(db)
-        school, other_school = School(name="SMK Taman Ilmu", state="Selangor"), School(name="SMK Seri Bayu", state="Pulau Pinang")
+        school = School(
+            name="SMK Taman Ilmu", state="Selangor", address="Jalan Ilmu 3, Taman Ilmu, 43000 Kajang, Selangor (demo address)",
+            phone="03-0000 0000", email="office@school.demo", description="Fictional demo school used for development.",
+        )
+        other_school = School(name="SMK Seri Bayu", state="Pulau Pinang")
         db.add_all([school, other_school])
         db.flush()
 
@@ -102,7 +108,11 @@ def run(reset: bool = True) -> None:
         db.add(admin)
         teachers = _teachers(db, school, other_school)
         classes, students = _classes_and_students(db, school, teachers)
-        for p in [admin, *teachers.values(), *students]:
+        # Enrolled in no class yet, so the enrolment workflow has someone to place.
+        newcomer = Profile(email="zara@student.demo", full_name="Zara Ahmad", role="student", school_id=school.id, form=4, student_number="S269001")
+        db.add(newcomer)
+        db.flush()
+        for p in [admin, *teachers.values(), *students, newcomer]:
             p.username = p.username or p.email.split("@")[0]
             passwords.set_password(db, p, settings.demo_password)
         _teaching(db, teachers, classes, subjects)
@@ -165,10 +175,10 @@ def _curriculum(db: Session, rng: random.Random) -> tuple[dict[str, Subject], di
 
 def _teachers(db: Session, school: School, other: School) -> dict[str, Profile]:
     t = {
-        "farid": Profile(email="farid@teacher.demo", full_name="Cikgu Farid Ismail", role="teacher", school_id=school.id),
-        "tan": Profile(email="tan@teacher.demo", full_name="Ms. Tan Li Wen", role="teacher", school_id=school.id),
-        "rohana": Profile(email="rohana@teacher.demo", full_name="Puan Rohana Yusof", role="teacher", school_id=school.id),
-        "lim": Profile(email="lim@teacher.demo", full_name="Mr. Lim Chee Keong", role="teacher", school_id=other.id),
+        "farid": Profile(email="farid@teacher.demo", full_name="Cikgu Farid Ismail", role="teacher", school_id=school.id, staff_number="T1001", department="Mathematics"),
+        "tan": Profile(email="tan@teacher.demo", full_name="Ms. Tan Li Wen", role="teacher", school_id=school.id, staff_number="T1002", department="Science"),
+        "rohana": Profile(email="rohana@teacher.demo", full_name="Puan Rohana Yusof", role="teacher", school_id=school.id, staff_number="T1003", department="Humanities"),
+        "lim": Profile(email="lim@teacher.demo", full_name="Mr. Lim Chee Keong", role="teacher", school_id=other.id, staff_number="T2001", department="Science"),
     }
     db.add_all(t.values())
     db.flush()
@@ -176,17 +186,26 @@ def _teachers(db: Session, school: School, other: School) -> dict[str, Profile]:
 
 
 def _classes_and_students(db: Session, school: School, teachers: dict[str, Profile]):
-    year = utcnow().year
+    year = gamification.today_my().year
+    # Demo calendar: approximate term dates, not an official KPM calendar.
+    academic_year = AcademicYear(school_id=school.id, name=str(year), start_date=date(year, 1, 1), end_date=date(year, 12, 31), is_current=True)
+    academic_year.terms = [
+        AcademicTerm(name="Term 1", start_date=date(year, 1, 12), end_date=date(year, 5, 29)),
+        AcademicTerm(name="Term 2", start_date=date(year, 6, 15), end_date=date(year, 11, 27)),
+    ]
+    db.add(academic_year)
+    db.flush()
     classes = {
-        "4 Bestari": SchoolClass(school_id=school.id, name="4 Bestari", form=4, year=year, class_teacher_id=teachers["farid"].id),
-        "4 Cemerlang": SchoolClass(school_id=school.id, name="4 Cemerlang", form=4, year=year, class_teacher_id=teachers["rohana"].id),
+        "4 Bestari": SchoolClass(school_id=school.id, academic_year_id=academic_year.id, name="4 Bestari", form=4, class_teacher_id=teachers["farid"].id),
+        "4 Cemerlang": SchoolClass(school_id=school.id, academic_year_id=academic_year.id, name="4 Cemerlang", form=4, class_teacher_id=teachers["rohana"].id),
     }
     db.add_all(classes.values())
     db.flush()
     students = []
     for cname, names in (("4 Bestari", BESTARI), ("4 Cemerlang", CEMERLANG)):
         for name in names:
-            s = Profile(email=email_for(name, "student.demo"), full_name=name, role="student", school_id=school.id, form=4)
+            number = f"S{year % 100:02d}{len(students) + 1:04d}"
+            s = Profile(email=email_for(name, "student.demo"), full_name=name, role="student", school_id=school.id, form=4, student_number=number)
             db.add(s)
             db.flush()
             db.add(ClassStudent(class_id=classes[cname].id, student_id=s.id))

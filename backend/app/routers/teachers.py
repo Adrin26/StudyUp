@@ -42,7 +42,10 @@ def _students(db: Session, ids: set[str] | list[str]) -> list[Profile]:
 def _class_students(db: Session, class_id: str) -> list[Profile]:
     return list(
         db.scalars(
-            select(Profile).join(ClassStudent, ClassStudent.student_id == Profile.id).where(ClassStudent.class_id == class_id).order_by(Profile.full_name)
+            select(Profile)
+            .join(ClassStudent, ClassStudent.student_id == Profile.id)
+            .where(ClassStudent.class_id == class_id, ClassStudent.status == "active")
+            .order_by(Profile.full_name)
         )
     )
 

@@ -83,8 +83,10 @@ def _digest(token: str) -> str:
     return hashlib.sha256(token.encode()).hexdigest()
 
 
-def issue_reset_token(db: Session, profile: Profile, requested_by: str | None = None) -> str:
+def issue_reset_token(db: Session, profile: Profile, requested_by: str | None = None, ttl_minutes: int | None = None) -> str:
+    """Single-use set/reset-password token. Any earlier unused token for the profile stops working."""
     now = utcnow()
+    ttl = ttl_minutes if ttl_minutes is not None else get_settings().password_reset_ttl_minutes
     db.execute(
         update(PasswordResetToken)
         .where(PasswordResetToken.profile_id == profile.id, PasswordResetToken.used_at.is_(None))
@@ -94,7 +96,7 @@ def issue_reset_token(db: Session, profile: Profile, requested_by: str | None = 
     db.add(PasswordResetToken(
         profile_id=profile.id,
         token_hash=_digest(token),
-        expires_at=now + timedelta(minutes=get_settings().password_reset_ttl_minutes),
+        expires_at=now + timedelta(minutes=ttl),
         requested_by=requested_by,
     ))
     return token

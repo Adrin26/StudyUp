@@ -193,14 +193,14 @@ Existing StudyUp table names are kept where they already fit, to avoid a disrupt
 
 | Table | Status | Key relationships / constraints |
 | --- | --- | --- |
-| `schools` | existing, profile fields P2 | name, state; P2 adds logo, address, contact, timezone |
+| `schools` | existing, profile fields P2 | name, state; P2 adds `logo_url` (https URL), address, phone, email, timezone, description |
 | `profiles` | existing, P1 adds `username` (unique), `status`, `last_login_at`, `updated_at`; drops `teacher_types` | `id` = `auth.users.id` on Supabase; `school_id → schools`; role ∈ admin/teacher/student. P2 adds `student_number` / `staff_number` (unique per school), department |
 | `local_credentials` | P1 | PK/FK `profile_id → profiles`; scrypt hash only; local auth mode |
 | `password_reset_tokens` | P1 | `profile_id → profiles`; SHA-256 of token (unique), `expires_at`, `used_at`, `requested_by → profiles` |
 | `audit_logs` (spec: `user_audit_logs`) | P1 | `actor_id → profiles` (nullable for system), action, resource type/id, `school_id`, non-sensitive JSON details |
-| `academic_years`, `academic_terms` | P2 | unique (school, name); one current year per school |
-| `classes` | existing, P2 adds `academic_year_id`, `code`, `status` | unique (school, academic_year, code) |
-| `class_students` (spec: `class_enrolments`) | existing, P2 adds `enrolled_at`, `left_at`, `status` | PK (class, student) → duplicate enrolment impossible; transfers close the old row instead of deleting it |
+| `academic_years`, `academic_terms` | P2 | years unique (school, name), end > start, one current year per school (service rule); terms unique (year, name), inside the year, non-overlapping |
+| `classes` | existing, P2 replaces `year` with `academic_year_id`, adds `status` (active/archived) | the class name is its code: unique (academic_year, name); form 1–5. Archived classes grant teachers no access |
+| `class_students` (spec: `class_enrolments`) | existing, P2 adds `enrolled_at`, `left_at`, `status` (active/transferred/withdrawn) | PK (class, student) → duplicate enrolment impossible; at most one active enrolment per student per academic year; transfers and withdrawals close the row instead of deleting it |
 | `teacher_subjects` (spec: `teacher_subject_assignments` + `teacher_class_assignments`) | existing | unique (teacher, subject, class). Class-teacher link is `classes.class_teacher_id` |
 | `student_subjects` | existing | PK (student, subject) |
 
@@ -259,13 +259,49 @@ Conventions: JSON bodies; errors are `{"detail": "<message>"}` or, for auth erro
 
 Password policy: 8–128 characters, at least one letter and one digit, not equal to the identifier. Issuing a new password (reset or change) invalidates all tokens issued before it.
 
+### Phase 2 endpoints (implemented)
+
+Every route below requires an **active admin** (`require_admin`) and is scoped to the admin's school by `services/school_scope.py`: an id from another school returns `404`, exactly like an id that does not exist. Admin accounts cannot be edited, disabled or reset through the API (`403`, "managed with the server CLI"); the role can never be set to `admin` by a request (`role` is `Literal["student","teacher"]`, so `422`). Every write is recorded in the audit log without passwords or tokens.
+
+| Method & path | Purpose | Request | Response | Errors |
+| --- | --- | --- | --- | --- |
+| `GET /api/admin/overview` | Dashboard | — | `{current_academic_year, counts, alerts[{kind,message,link}], content[{subject,topics,topics_with_lessons,topics_with_questions}], recent_accounts, recent_activity}` | — |
+| `GET /api/admin/lookups` | Options for forms | — | `{subjects, classes (active), teachers, academic_years}` | — |
+| `GET /api/admin/users` | Directory | `?q&role&status&class_id&subject_id&created_from&created_to&page&page_size≤100` | `{items[], total, page, page_size}` | 422 |
+| `GET /api/admin/users/{id}` | Detail | — | profile, `credentials_set`, `manageable`, class, `enrolments` history, subjects, teaching, `recent_activity` | 404 |
+| `POST /api/admin/users` | Create student/teacher | `{role, full_name, email, username?, status, student_number + form? \| staff_number + department?, class_id?, subject_ids?, assignments?[{subject_id, class_id}], send_invite}` | `201 {user, invitation{delivered, message} \| null}` | 409 duplicate email/username/ID (field-specific) or archived class; 422; 501 in Supabase mode |
+| `PATCH /api/admin/users/{id}` | Edit | any subset of the identity fields | user | 403 admin; 409; 422 |
+| `POST /api/admin/users/{id}/disable` / `reactivate` | Account status (disabling also voids unused set/reset links) | — | user | 403 admin accounts |
+| `POST /api/admin/users/{id}/reset-password` | Send a single-use set-password link | — | `{initiated, delivered, message}` | 403 admin; 409 disabled; 429 (5 per window); 501 in Supabase mode |
+| `PUT /api/admin/users/{id}/class` | Place a student: enrol, transfer within the same year, or withdraw (`null`) | `{class_id \| null}` | user detail | 409 archived class; 422 |
+| `PUT /api/admin/users/{id}/subjects` | Student subject choices | `{subject_ids[]}` | user detail | 422 |
+| `POST /api/admin/users/import/preview` | Validate a CSV | `{csv ≤ 512 KB, send_invites}` | `{header_errors[], rows[{line, status ready/error, errors[], …}], summary}` | 422 |
+| `POST /api/admin/users/import/confirm` | Create the valid rows | same | `{created[], failed[], summary}` (each row in its own savepoint) | 422 header errors |
+| `GET` / `PUT /api/admin/school` | School profile | `{name, state, address, phone, email, logo_url (https), timezone, description}` | profile + `timezones[]` | 422 |
+| `GET` / `POST /api/admin/academic-years` | List / create year | `{name, start_date, end_date, is_current}` | year(s) with `terms[]`, `class_count` | 409 duplicate name; 422 dates |
+| `PUT /api/admin/academic-years/{id}` | Edit year | same | year | 409; 422 terms outside new dates |
+| `POST /api/admin/academic-years/{id}/set-current` | Switch current year | — | year | 404 |
+| `POST /api/admin/academic-years/{id}/terms` | Add term | `{name, start_date, end_date}` | year | 409 name; 422 outside year / overlap |
+| `PUT` / `DELETE /api/admin/academic-terms/{id}` | Edit / delete term | same | the parent year | 409; 422 |
+| `GET /api/admin/classes` | Class list | `?academic_year_id&status=active\|archived\|all` | `[{…, class_teacher, student_count, subject_count}]` | 422 |
+| `POST /api/admin/classes` | Create | `{name, form, academic_year_id, class_teacher_id?}` | `201` class detail | 409 name taken in that year or disabled teacher; 422 |
+| `GET` / `PATCH /api/admin/classes/{id}` | Detail (roster incl. history, teaching) / edit | `{name?, form?, class_teacher_id?}` | class detail | 409 archived, duplicate name or disabled teacher |
+| `POST /api/admin/classes/{id}/archive` / `restore` | Archive keeps history; teachers lose access | — | class detail | 409 restore when the name is now taken |
+| `GET /api/admin/classes/{id}/eligible-students` | Active students with no active class in that year (max 200) | `?q` (name or student ID) | `[{id, full_name, student_number, form}]` | — |
+| `POST /api/admin/classes/{id}/students` | Bulk enrol | `{student_ids[1..200]}` | `{enrolled[], already_enrolled[], failed[{id, reason}], class}` | 409 archived |
+| `POST /api/admin/classes/{id}/students/{sid}/transfer` | Transfer within the same year | `{to_class_id}` | source class detail | 404 not enrolled; 409 target archived; 422 different year |
+| `DELETE /api/admin/classes/{id}/students/{sid}` | Withdraw (row kept as `withdrawn`) | — | class detail | 404 |
+| `GET` / `POST /api/admin/teacher-assignments` | List (`?teacher_id&class_id&subject_id&include_archived`) / add | `{teacher_id, subject_id, class_id}` | assignment(s); `201` on add | 409 duplicate, disabled teacher or archived class |
+| `DELETE /api/admin/teacher-assignments/{id}` | Remove | — | `{deleted}` | 404 |
+
+CSV import format: header row required, columns `role, full_name, email` plus optional `username, student_number, staff_number, form, class, department`; up to 500 rows. The preview flags missing/unknown headers, invalid values, duplicates inside the file and conflicts with existing accounts; confirm creates only the rows that are still valid and reports the rest.
+
+Invitations: new accounts get no password. With `send_invite` (or `send_invites` for imports) the backend issues a single-use set-password link valid for `INVITE_TTL_HOURS` (default 72); "Send set-password link" on the user page issues a fresh one with the same lifetime (worded as an invitation if the user has never set a password, otherwise as a reset). Self-service "forgot password" links still use `PASSWORD_RESET_TTL_MINUTES`. In development the link is printed to the API console.
+
 ### Later phases (route groups and guards)
 
 | Group | Phase | Role | Scope rule |
 | --- | --- | --- | --- |
-| `/api/admin/users` (list, create, update, disable, reactivate, reset-password, import preview/confirm) | P2 | admin | own school |
-| `/api/admin/school`, `/api/admin/academic-years` | P2 | admin | own school |
-| `/api/admin/classes` (+ enrolments, transfers, teacher assignments) | P2 | admin | own school |
 | `/api/admin/subjects`, `/api/admin/topics`, `/api/admin/lessons`, `/api/admin/questions` | P3 | admin | central content |
 | `/api/admin/memos` (+ ack report export) | P3 | admin | own school |
 | `/api/memos` (list, detail, read, acknowledge) | P3 | any | published, `publish_at ≤ now`, not expired/archived, own school |
@@ -287,7 +323,7 @@ Detailed per-endpoint specs for each later phase are written at the start of tha
 | Phase | Scope | Exit criteria |
 | --- | --- | --- |
 | **1 Foundation** | Alembic baseline + migrations on local Postgres; three roles; per-user password login (email or username); account status; password recovery + change; centralised role guards; audit log; admin CLI bootstrap; derived teacher responsibilities; AI feature flag; role-adaptive layout with Admin area, Profile, 404 and access-denied pages; this plan | Migrations apply to an empty DB and match the models; auth/RBAC tests pass; all three roles can sign in locally |
-| **2 Admin & school** | Admin dashboard (full), user directory + create/edit/disable, admin-initiated reset, CSV import with preview, school profile, academic years/terms, classes, enrolment/transfer, teacher assignments | Admin can run a school without touching SQL; cross-school isolation tests |
+| **2 Admin & school** ✅ implemented | Admin dashboard (full), user directory + create/edit/disable, admin-initiated reset, CSV import with preview, school profile, academic years/terms, classes, enrolment/transfer, teacher assignments | Admin can run a school without touching SQL; cross-school isolation tests |
 | **3 Content & memos** | Subject/topic/subtopic/objective/lesson/question management with draft → published → archived and preview; Supabase Storage for images; school memos with reads and acknowledgements | Students only see published content; memo visibility tests |
 | **4 Student learning** | Upgrade dashboard, subject/topic pages (objectives, states), lessons, 10-question quizzes with idempotent submit, results, mastery config, practice + past-year filters | Duplicate submission/XP tests; quiz selection tests |
 | **5 Teacher tools** | Teacher dashboard upgrade, class/subject analytics, assignments with windows and release rules, exam generator publish + student exam attempts | Scope and answer-release tests |

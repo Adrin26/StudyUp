@@ -21,6 +21,16 @@ def send(to: str, subject: str, body: str) -> bool:
     return False
 
 
+def send_invitation(to: str, name: str, school: str | None, link: str, ttl_hours: int) -> bool:
+    return send(
+        to,
+        "Your MINDA account is ready",
+        f"Hi {name},\n\n{school or 'Your school'} has created a MINDA account for you. "
+        f"Use this link to choose your password. It expires in {ttl_hours} hours and works once:\n{link}\n\n"
+        "If you were not expecting this, contact your school office.",
+    )
+
+
 def send_password_reset(to: str, name: str, link: str, ttl_minutes: int) -> bool:
     return send(
         to,

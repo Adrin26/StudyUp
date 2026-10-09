@@ -21,6 +21,14 @@ const ResetPasswordPage = lazy(() => import("@/pages/auth/ResetPassword"));
 const ProfilePage = lazy(() => import("@/pages/shared/Profile"));
 const AdminDashboard = lazy(() => import("@/pages/admin/Dashboard"));
 const AuditLogPage = lazy(() => import("@/pages/admin/AuditLog"));
+const AdminUsersPage = lazy(() => import("@/pages/admin/Users"));
+const AdminUserNewPage = lazy(() => import("@/pages/admin/UserNew"));
+const AdminUserImportPage = lazy(() => import("@/pages/admin/UserImport"));
+const AdminUserDetailPage = lazy(() => import("@/pages/admin/UserDetail"));
+const AdminClassesPage = lazy(() => import("@/pages/admin/Classes"));
+const AdminClassDetailPage = lazy(() => import("@/pages/admin/ClassDetail"));
+const TeacherAssignmentsPage = lazy(() => import("@/pages/admin/TeacherAssignments"));
+const SchoolPage = lazy(() => import("@/pages/admin/School"));
 const TeacherDashboard = lazy(() => import("@/pages/teacher/Dashboard"));
 const TeacherStudentPage = lazy(() => import("@/pages/teacher/StudentDetail"));
 const ExamsPage = lazy(() => import("@/pages/teacher/Exams"));
@@ -62,6 +70,14 @@ export default function App() {
 
       <Route path="admin" element={<RequireRole roles={["admin"]}><AppShell /></RequireRole>}>
         <Route index element={<AdminDashboard />} />
+        <Route path="users" element={<AdminUsersPage />} />
+        <Route path="users/new" element={<AdminUserNewPage />} />
+        <Route path="users/import" element={<AdminUserImportPage />} />
+        <Route path="users/:userId" element={<AdminUserDetailPage />} />
+        <Route path="classes" element={<AdminClassesPage />} />
+        <Route path="classes/:classId" element={<AdminClassDetailPage />} />
+        <Route path="teacher-assignments" element={<TeacherAssignmentsPage />} />
+        <Route path="school" element={<SchoolPage />} />
         <Route path="audit-log" element={<AuditLogPage />} />
       </Route>
 

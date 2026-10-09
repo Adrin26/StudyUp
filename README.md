@@ -4,7 +4,7 @@ MINDA is a school learning and academic management platform for Malaysian second
 
 There are exactly three roles: **Admin**, **Teacher** and **Student**. "Class teacher" and "subject teacher" are not roles. They are derived from a teacher's class and subject assignments.
 
-The architecture, ERD, permission matrix, API outline and the phased delivery plan are in [`docs/PLAN.md`](docs/PLAN.md). **Phase 1 (Foundation) is implemented**; later phases are listed there.
+The architecture, ERD, permission matrix, API outline and the phased delivery plan are in [`docs/PLAN.md`](docs/PLAN.md). **Phase 1 (Foundation) and Phase 2 (Admin and school management) are implemented**; later phases are listed there.
 
 > **About the question bank:** the seeded questions are *SPM-style samples* generated for this demo, tagged with years 2019–2024 for filtering. They are **not** real SPM past-year papers.
 
@@ -45,6 +45,7 @@ Alembic (`backend/migrations`) is the source of truth for the schema on PostgreS
 | --- | --- |
 | `0001` | Baseline: the original StudyUp schema |
 | `0002` | Phase 1: account `status`, `username`, `last_login_at`, `local_credentials`, `password_reset_tokens`, `audit_logs`; removes the stored `teacher_types` |
+| `0003` | Phase 2: school profile fields, `academic_years`, `academic_terms`, `classes.academic_year_id` + `status` (replaces `year`; existing classes are moved into a backfilled year per school and calendar year), enrolment `status`/`enrolled_at`/`left_at`, student and staff IDs, department |
 
 ```powershell
 venv\Scripts\alembic upgrade head      # apply
@@ -65,8 +66,9 @@ All seeded people, schools and results are **fictional demo data**. The login pa
 | `farid@teacher.demo` | `farid` | Teacher: class teacher of 4 Bestari, Mathematics / Add Maths |
 | `rohana@teacher.demo` | `rohana` | Teacher: class teacher of 4 Cemerlang, Biology / History |
 | `tan@teacher.demo` | `tan` | Teacher: subject teacher only (Physics, Chemistry, English) |
+| `zara@student.demo` | `zara` | Student not yet in a class, for trying enrolment |
 
-Users sign in with **email or username**. Every student is `<firstname>@student.demo`.
+Users sign in with **email or username**. Every student is `<firstname>@student.demo`. The seed also creates the current academic year with two terms whose dates are approximate demo values, not an official school calendar.
 
 ### Creating a real admin
 
@@ -99,6 +101,20 @@ Security behaviour:
 - Passwords are never returned, logged, or written to the audit log. The audit log strips password and token fields from its details.
 - Role checks live in `app/permissions.py` (`require_admin`, `require_teacher`, `require_student`, …). The frontend route guards are for UX only.
 
+## School administration (Phase 2)
+
+Admins manage their own school from the web app; every rule is enforced by the API (`/api/admin/*`, see `docs/PLAN.md` §6):
+
+- **Dashboard**: current academic year, summary counts, quick actions, alerts that link to the fix (no current year, students without a class, teachers without assignments, classes without a class teacher), content completion per subject, recent accounts and activity.
+- **Users**: searchable, filterable, paginated directory; create students (Student ID, form, class, subjects) and teachers (Staff ID, department, teaching assignments); edit; disable and reactivate; send a set-password link.
+- **No admin ever sees or sets a password.** New accounts are created without one. The admin can send a single-use set-password link that expires after `INVITE_TTL_HOURS` (default 72); only its hash is stored. In development the link is **printed to the API console**, because no email provider is configured. Disabling an account voids its unused links.
+- **CSV import** (`/admin/users/import`): columns `role, full_name, email` plus optional `username, student_number, staff_number, form, class, department`, up to 500 rows. The preview validates headers and every row and flags duplicates inside the file and against existing accounts. Confirm creates only the valid rows and reports the rest. The page offers a downloadable template.
+- **School profile**: name, logo (an `https://` URL), address, phone, email, timezone, description. The logo and name appear in the navigation.
+- **Academic years and terms**: one current year per school, and terms must sit inside their year without overlapping.
+- **Classes**: create per academic year (the name must be unique in that year), set the form and class teacher, enrol (bulk), transfer within the same year, withdraw, and archive or restore. Enrolments are never deleted: transfers and withdrawals close the row (`status`, `left_at`), so the roster history is kept. A student can be in at most one class per academic year.
+- **Teaching assignments**: teacher × subject × class. Archived classes and ended enrolments no longer give a teacher access to students.
+- Admin accounts can't be modified through these screens; use the CLI below.
+
 ## AI features (optional, off by default)
 
 The MVP does not depend on AI. With `AI_FEATURES_ENABLED=false` (the default):
@@ -120,6 +136,8 @@ The tests run against an isolated SQLite database. They cover:
 - login by email or username, and the generic failure message;
 - rate limiting;
 - disabled accounts, role guards and admin school scoping;
+- admin user management: cross-school isolation, no admin creation or role escalation, validation and duplicate detection, invitations and admin-initiated resets without exposing passwords, disable/reactivate;
+- CSV import preview and confirm; academic years and terms; class creation, enrolment, transfer, withdrawal and archiving, and the effect on teacher access;
 - derived teacher responsibilities;
 - forgot, reset and change password, the password policy, and token invalidation;
 - audit logging, and the admin CLI;
@@ -174,13 +192,13 @@ On Supabase, the same rules are enforced again with RLS (`supabase/migrations/`)
    SUPABASE_URL=https://<ref>.supabase.co
    SUPABASE_JWT_SECRET=<legacy JWT secret>   # or leave empty to verify via JWKS
    ```
-3. `cd backend && alembic stamp 0001 && alembic upgrade head`, then run `supabase/migrations/0002_phase1_auth_rls.sql`.
+3. `cd backend && alembic stamp 0001 && alembic upgrade head`, then run `supabase/migrations/0002_phase1_auth_rls.sql` and `0003_phase2_school_admin_rls.sql`.
 4. Frontend `.env`: `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` (the anon key only; never the service-role key).
 5. Disable public sign-ups in Supabase Auth settings. Accounts that are created anyway become students (trigger `handle_new_user`). Grant admin with `python -m app.cli grant-admin`.
 
 The demo seed refuses to run with `AUTH_MODE=supabase`, against a Supabase URL, or in production.
 
-> The Supabase path has not yet been verified against a live Supabase project; Phase 1 was verified with local PostgreSQL.
+> The Supabase path has not yet been verified against a live Supabase project; Phases 1 and 2 were verified with local PostgreSQL. In `AUTH_MODE=supabase`, creating accounts, importing and sending set-password links from the admin screens return `501`, because they need the Supabase Admin API on the server. Until that is added, create users in Supabase and manage their details here.
 
 ## Deployment notes
 
@@ -190,9 +208,10 @@ The demo seed refuses to run with `AUTH_MODE=supabase`, against a Supabase URL, 
 
 ## Roadmap
 
-See [`docs/PLAN.md`](docs/PLAN.md). Phase 2 onward covers:
+See [`docs/PLAN.md`](docs/PLAN.md). Phase 3 onward covers:
 
-- admin user, class and subject management, and the school calendar;
+- subject and content management, file uploads (including a school logo upload; Phase 2 takes a logo URL), and school memos;
+- the school calendar (Phase 6);
 - homework and assessments, and announcements;
 - reports and analytics;
 - the moved-over learning features;

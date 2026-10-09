@@ -2,11 +2,11 @@ import uuid
 from datetime import timedelta
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from app.config import get_settings
 from app.database import SessionLocal
-from app.models import AuditLog, PasswordResetToken, Profile, School, utcnow
+from app.models import AuditLog, PasswordResetToken, Profile, School, SchoolClass, utcnow
 from app.services import passwords
 
 from .conftest import login
@@ -133,10 +133,13 @@ def test_admin_overview_counts_are_school_scoped(client, admin):
         school = db.scalar(select(School).where(School.name == "SMK Taman Ilmu"))
         mine = list(db.scalars(select(Profile).where(Profile.school_id == school.id, Profile.status == "active")))
         lim = db.scalar(select(Profile).where(Profile.email == "lim@teacher.demo"))
+        active_classes = db.scalar(
+            select(func.count()).select_from(SchoolClass).where(SchoolClass.school_id == school.id, SchoolClass.status == "active")
+        )
     assert lim.school_id != school.id
     assert counts["active_students"] == sum(p.role == "student" for p in mine) >= 22
     assert counts["active_teachers"] == sum(p.role == "teacher" for p in mine) >= 3
-    assert counts["classes"] == 2
+    assert counts["classes"] == active_classes >= 2
     assert counts["subjects"] == 10 and counts["topics"] > 0
     assert all(a["role"] for a in data["recent_accounts"])
 

@@ -12,6 +12,7 @@ export interface User {
   /** Derived by the backend from current class and subject assignments. */
   teacher_types: ("class_teacher" | "subject_teacher")[];
   school: string | null;
+  school_logo_url: string | null;
   class_name: string | null;
   form: number | null;
   last_login_at: string | null;
@@ -29,6 +30,7 @@ export interface AuditEntry {
 }
 
 export interface AdminOverview {
+  current_academic_year: { id: string; name: string; start_date: string; end_date: string } | null;
   counts: {
     active_students: number;
     active_teachers: number;
@@ -37,9 +39,139 @@ export interface AdminOverview {
     topics: number;
     active_assignments: number;
   };
-  alerts: { kind: string; message: string }[];
+  alerts: { kind: string; message: string; link: string | null }[];
+  content: { subject: string; topics: number; topics_with_lessons: number; topics_with_questions: number }[];
   recent_accounts: { id: string; name: string; role: Role; status: string; created_at: string }[];
   recent_activity: AuditEntry[];
+}
+
+export type AccountStatus = "active" | "disabled";
+export interface Ref {
+  id: string;
+  name: string;
+}
+export interface PersonRef extends Ref {
+  status: AccountStatus;
+}
+
+export interface TeachingAssignment {
+  id: string;
+  teacher: PersonRef;
+  subject: Ref;
+  class: Ref & { status: "active" | "archived"; academic_year: string };
+}
+
+export interface AdminUser {
+  id: string;
+  full_name: string;
+  email: string;
+  username: string | null;
+  role: Role;
+  status: AccountStatus;
+  student_number: string | null;
+  staff_number: string | null;
+  form: number | null;
+  department: string | null;
+  class: Ref | null;
+  homeroom: Ref[];
+  teaching: { id: string; subject: Ref; class: Ref }[];
+  created_at: string;
+  last_login_at: string | null;
+}
+
+export interface AdminUserDetail extends AdminUser {
+  credentials_set: boolean;
+  manageable: boolean;
+  subjects: Ref[];
+  enrolments: { class_id: string; class_name: string; class_status: string; academic_year: string; status: "active" | "transferred" | "withdrawn"; enrolled_at: string; left_at: string | null }[];
+  recent_activity: { id: string; action: string; details: Record<string, unknown>; created_at: string; actor: Ref | null }[];
+}
+
+export interface Page<T> {
+  items: T[];
+  total: number;
+  page: number;
+  page_size: number;
+}
+
+export interface AdminLookups {
+  subjects: (Ref & { code: string })[];
+  classes: (Ref & { form: number; academic_year_id: string; academic_year: string })[];
+  teachers: PersonRef[];
+  academic_years: (Ref & { is_current: boolean })[];
+}
+
+export interface AdminClass {
+  id: string;
+  name: string;
+  form: number;
+  status: "active" | "archived";
+  academic_year: Ref & { is_current: boolean };
+  class_teacher: PersonRef | null;
+  student_count: number;
+  subject_count: number;
+}
+
+export interface AdminClassDetail extends AdminClass {
+  students: { id: string; full_name: string; student_number: string | null; status: AccountStatus; enrolled_at: string }[];
+  former_students: { id: string; full_name: string; student_number: string | null; status: "transferred" | "withdrawn"; enrolled_at: string; left_at: string | null }[];
+  teaching: TeachingAssignment[];
+}
+
+export interface AcademicTerm {
+  id: string;
+  name: string;
+  start_date: string;
+  end_date: string;
+}
+
+export interface AcademicYear extends AcademicTerm {
+  is_current: boolean;
+  class_count: number;
+  terms: AcademicTerm[];
+}
+
+export interface SchoolProfile {
+  id: string;
+  name: string;
+  state: string | null;
+  address: string | null;
+  phone: string | null;
+  email: string | null;
+  logo_url: string | null;
+  timezone: string;
+  description: string | null;
+  current_academic_year: Ref | null;
+  timezones: string[];
+}
+
+export interface ImportRow {
+  line: number;
+  role: string | null;
+  full_name: string | null;
+  email: string | null;
+  username: string | null;
+  id_number: string | null;
+  class: string | null;
+  status: "ready" | "error";
+  errors: string[];
+}
+
+export interface ImportPreview {
+  header_errors: string[];
+  rows: ImportRow[];
+  summary: { total: number; ready: number; errors: number };
+}
+
+export interface ImportResult {
+  created: { line: number; id: string; full_name: string; email: string; username: string; invitation_delivered: boolean | null }[];
+  failed: { line: number; email: string | null; errors: string[] }[];
+  summary: { created: number; failed: number };
+}
+
+export interface LinkResult {
+  delivered: boolean;
+  message: string;
 }
 
 export interface Level {

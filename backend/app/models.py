@@ -22,6 +22,8 @@ from sqlalchemy import (
     UniqueConstraint,
     Uuid,
 )
+from sqlalchemy import false as sa_false
+from sqlalchemy import func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .database import Base
@@ -67,6 +69,44 @@ class School(Base):
     id: Mapped[str] = pk()
     name: Mapped[str] = mapped_column(String(200))
     state: Mapped[str | None] = mapped_column(String(100))
+    address: Mapped[str | None] = mapped_column(Text)
+    phone: Mapped[str | None] = mapped_column(String(40))
+    email: Mapped[str | None] = mapped_column(String(255))
+    logo_url: Mapped[str | None] = mapped_column(String(500))
+    timezone: Mapped[str] = mapped_column(String(60), default="Asia/Kuala_Lumpur", server_default="Asia/Kuala_Lumpur")
+    description: Mapped[str | None] = mapped_column(Text)
+    updated_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), onupdate=utcnow)
+
+
+class AcademicYear(Base):
+    __tablename__ = "academic_years"
+    __table_args__ = (
+        UniqueConstraint("school_id", "name", name="uq_academic_years_school_name"),
+        CheckConstraint("end_date > start_date", name="ck_academic_years_dates"),
+    )
+    id: Mapped[str] = pk()
+    school_id: Mapped[str] = mapped_column(ForeignKey("schools.id", ondelete="CASCADE"), index=True)
+    name: Mapped[str] = mapped_column(String(40))  # e.g. "2026"
+    start_date: Mapped[date] = mapped_column(Date)
+    end_date: Mapped[date] = mapped_column(Date)
+    # At most one current year per school; enforced by services/school.py when switching.
+    is_current: Mapped[bool] = mapped_column(Boolean, default=False, server_default=sa_false())
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
+
+    terms: Mapped[list["AcademicTerm"]] = relationship(order_by="AcademicTerm.start_date", cascade="all, delete-orphan")
+
+
+class AcademicTerm(Base):
+    __tablename__ = "academic_terms"
+    __table_args__ = (
+        UniqueConstraint("academic_year_id", "name", name="uq_academic_terms_year_name"),
+        CheckConstraint("end_date > start_date", name="ck_academic_terms_dates"),
+    )
+    id: Mapped[str] = pk()
+    academic_year_id: Mapped[str] = mapped_column(ForeignKey("academic_years.id", ondelete="CASCADE"), index=True)
+    name: Mapped[str] = mapped_column(String(60))
+    start_date: Mapped[date] = mapped_column(Date)
+    end_date: Mapped[date] = mapped_column(Date)
 
 
 ROLES = ("admin", "teacher", "student")
@@ -78,6 +118,8 @@ class Profile(Base):
     __table_args__ = (
         CheckConstraint("role IN ('admin', 'teacher', 'student')", name="ck_profiles_role"),
         CheckConstraint("status IN ('active', 'disabled')", name="ck_profiles_status"),
+        UniqueConstraint("school_id", "student_number", name="uq_profiles_school_student_number"),
+        UniqueConstraint("school_id", "staff_number", name="uq_profiles_school_staff_number"),
     )
     id: Mapped[str] = pk()
     email: Mapped[str] = mapped_column(String(255), unique=True, index=True)
@@ -89,6 +131,9 @@ class Profile(Base):
     status: Mapped[str] = mapped_column(String(20), default="active", server_default="active", index=True)
     school_id: Mapped[str | None] = mapped_column(ForeignKey("schools.id"))
     form: Mapped[int | None] = mapped_column(Integer)
+    student_number: Mapped[str | None] = mapped_column(String(30))
+    staff_number: Mapped[str | None] = mapped_column(String(30))
+    department: Mapped[str | None] = mapped_column(String(100))
     avatar_url: Mapped[str | None] = mapped_column(String(500))
     xp: Mapped[int] = mapped_column(Integer, default=0)
     current_streak: Mapped[int] = mapped_column(Integer, default=0)
@@ -138,18 +183,34 @@ class AuditLog(Base):
 
 class SchoolClass(Base):
     __tablename__ = "classes"
+    __table_args__ = (
+        UniqueConstraint("academic_year_id", "name", name="uq_classes_year_name"),
+        CheckConstraint("status IN ('active', 'archived')", name="ck_classes_status"),
+        CheckConstraint("form BETWEEN 1 AND 5", name="ck_classes_form"),
+    )
     id: Mapped[str] = pk()
     school_id: Mapped[str] = mapped_column(ForeignKey("schools.id"))
-    name: Mapped[str] = mapped_column(String(100))
+    academic_year_id: Mapped[str] = mapped_column(ForeignKey("academic_years.id"), index=True)
+    name: Mapped[str] = mapped_column(String(100))  # doubles as the class code, unique per academic year
     form: Mapped[int] = mapped_column(Integer)
-    year: Mapped[int] = mapped_column(Integer)
     class_teacher_id: Mapped[str | None] = mapped_column(ForeignKey("profiles.id"))
+    # Archived classes keep their roster history but no longer grant teacher access.
+    status: Mapped[str] = mapped_column(String(20), default="active", server_default="active")
+
+
+ENROLMENT_STATUSES = ("active", "transferred", "withdrawn")
 
 
 class ClassStudent(Base):
+    """A student's enrolment in a class. Rows are closed (status + left_at), never deleted, when a student moves."""
+
     __tablename__ = "class_students"
+    __table_args__ = (CheckConstraint("status IN ('active', 'transferred', 'withdrawn')", name="ck_class_students_status"),)
     class_id: Mapped[str] = mapped_column(ForeignKey("classes.id", ondelete="CASCADE"), primary_key=True)
     student_id: Mapped[str] = mapped_column(ForeignKey("profiles.id", ondelete="CASCADE"), primary_key=True)
+    status: Mapped[str] = mapped_column(String(20), default="active", server_default="active")
+    enrolled_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow, server_default=func.now())
+    left_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
 
 
 class Subject(Base):

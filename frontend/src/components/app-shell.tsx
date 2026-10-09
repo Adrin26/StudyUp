@@ -1,5 +1,5 @@
 import { Link, NavLink, Outlet, useNavigate } from "react-router-dom";
-import { BookOpenCheck, ClipboardList, GraduationCap, Home, LayoutDashboard, LogOut, MessagesSquare, ScrollText, Target, Users } from "lucide-react";
+import { BookOpenCheck, Building2, ClipboardList, GraduationCap, Home, LayoutDashboard, LogOut, MessagesSquare, School, ScrollText, Target, Users } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 import type { Role } from "@/types";
@@ -18,6 +18,10 @@ const NAV: Record<Role, { to: string; label: string; icon: typeof Home; end?: bo
   ],
   admin: [
     { to: "/admin", label: "Dashboard", icon: LayoutDashboard, end: true },
+    { to: "/admin/users", label: "Users", icon: Users },
+    { to: "/admin/classes", label: "Classes", icon: School },
+    { to: "/admin/teacher-assignments", label: "Teaching", icon: BookOpenCheck },
+    { to: "/admin/school", label: "School", icon: Building2 },
     { to: "/admin/audit-log", label: "Audit log", icon: ScrollText },
   ],
 };
@@ -48,7 +52,7 @@ export function AppShell() {
   return (
     <div className="min-h-dvh lg:pl-64">
       <aside className="fixed inset-y-0 left-0 hidden w-64 flex-col border-r bg-card/80 p-4 backdrop-blur lg:flex">
-        <Brand school={user.school} />
+        <Brand school={user.school} logoUrl={user.school_logo_url} />
         <nav className="mt-8 flex flex-1 flex-col gap-1" aria-label="Main">
           {nav.map((item) => (
             <NavLink
@@ -82,7 +86,7 @@ export function AppShell() {
       </aside>
 
       <header className="sticky top-0 z-30 flex items-center justify-between border-b bg-card/80 px-4 py-3 backdrop-blur lg:hidden">
-        <Brand school={user.school} />
+        <Brand school={user.school} logoUrl={user.school_logo_url} />
         <div className="flex items-center gap-1">
           <Link to="/profile" aria-label="Profile and settings">
             <Avatar name={user.full_name} small />
@@ -103,11 +107,13 @@ export function AppShell() {
             key={item.to}
             to={item.to}
             end={item.end}
-            className={({ isActive }) => cn("flex min-w-16 flex-col items-center gap-0.5 rounded-xl px-3 py-1.5 text-[11px] font-semibold text-muted-foreground", isActive && "text-primary")}
+            className={({ isActive }) =>
+              cn("flex min-w-0 flex-1 flex-col items-center gap-0.5 rounded-xl px-1 py-1.5 text-[11px] font-semibold text-muted-foreground", isActive && "text-primary")
+            }
           >
             {({ isActive }) => (
               <>
-                <span className={cn("rounded-full px-4 py-1 transition-colors", isActive && "bg-primary/10")}>
+                <span className={cn("rounded-full px-3 py-1 transition-colors", isActive && "bg-primary/10")}>
                   <item.icon className="size-5" />
                 </span>
                 {item.label}
@@ -128,12 +134,16 @@ function Avatar({ name, small }: { name: string; small?: boolean }) {
   );
 }
 
-export function Brand({ school }: { school?: string | null }) {
+export function Brand({ school, logoUrl }: { school?: string | null; logoUrl?: string | null }) {
   return (
     <div className="flex items-center gap-2.5">
-      <div className="flex size-9 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500 to-blue-500 text-white shadow-md shadow-violet-500/30">
-        <GraduationCap className="size-5" />
-      </div>
+      {logoUrl ? (
+        <img src={logoUrl} alt="" className="size-9 shrink-0 rounded-xl border bg-card object-contain" />
+      ) : (
+        <div className="flex size-9 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500 to-blue-500 text-white shadow-md shadow-violet-500/30">
+          <GraduationCap className="size-5" />
+        </div>
+      )}
       <div className="min-w-0 leading-tight">
         <p className="text-sm font-extrabold tracking-tight">MINDA</p>
         <p className="truncate text-[11px] font-medium text-muted-foreground">{school ?? "Learn. Practice. Master."}</p>

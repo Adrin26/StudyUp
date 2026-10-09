@@ -23,6 +23,8 @@ class Settings(BaseSettings):
     demo_password: str = "demo1234"
 
     password_reset_ttl_minutes: int = 30
+    # Set-password links sent with new accounts (and admin-initiated resets) last longer than self-service resets.
+    invite_ttl_hours: int = 72
     login_max_failures: int = 5
     login_window_minutes: int = 15
     # Used to build links in emails (password reset).
