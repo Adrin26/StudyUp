@@ -38,7 +38,7 @@ export default function CommunityPage({ space }: { space: "student" | "teacher" 
   useEffect(() => setTopicId(""), [subjectId]);
 
   const canPost = space === "student" ? meta?.can_post_student : meta?.can_post_teacher;
-  const base = user?.role === "student" ? "/community" : "/teacher/community";
+  const base = user?.role === "student" ? "/community" : space === "teacher" ? "/teacher/community" : "/teacher/student-community";
 
   return (
     <div className="space-y-5">

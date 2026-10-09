@@ -59,6 +59,7 @@ export default function App() {
         <Route path="community" element={<CommunityPage space="teacher" />} />
         <Route path="student-community" element={<CommunityPage space="student" />} />
         <Route path="community/:postId" element={<PostPage />} />
+        <Route path="student-community/:postId" element={<PostPage />} />
       </Route>
 
       <Route path="*" element={<Navigate to={user ? (user.role === "student" ? "/" : "/teacher") : "/login"} replace />} />
