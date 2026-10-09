@@ -6,6 +6,8 @@ venv/
 .pytest_cache/
 *.db
 *.db-journal
+backend/uploads/
+backend/private_uploads/
 
 # Node
 node_modules/

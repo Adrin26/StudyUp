@@ -155,6 +155,7 @@ def create_assignment(body: AssignmentIn, teacher: Profile = Depends(require_tea
     assignment = Assignment(
         teacher_id=teacher.id, title=body.title, instructions=body.instructions, subject_id=body.subject_id,
         topic_id=body.topic_id, set_id=qset.id, due_date=body.due_date,
+        available_from=body.available_from, feedback_release=body.feedback_release,
     )
     db.add(assignment)
     db.flush()
@@ -179,6 +180,8 @@ def list_assignments(teacher: Profile = Depends(require_teacher), db: Session = 
             "subject": subjects.get(a.subject_id),
             "topic": topics.get(a.topic_id),
             "due_date": a.due_date,
+            "available_from": a.available_from,
+            "feedback_release": a.feedback_release,
             "created_at": a.created_at,
             "assigned": len(rows),
             "completed": len(done),

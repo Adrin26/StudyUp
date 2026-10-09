@@ -29,11 +29,19 @@ const AdminClassesPage = lazy(() => import("@/pages/admin/Classes"));
 const AdminClassDetailPage = lazy(() => import("@/pages/admin/ClassDetail"));
 const TeacherAssignmentsPage = lazy(() => import("@/pages/admin/TeacherAssignments"));
 const SchoolPage = lazy(() => import("@/pages/admin/School"));
+const ContentPage = lazy(() => import("@/pages/admin/Content"));
+const AdminMemosPage = lazy(() => import("@/pages/admin/Memos"));
+const MemosPage = lazy(() => import("@/pages/shared/Memos"));
+const NotificationsPage = lazy(() => import("@/pages/shared/Notifications"));
+const CalendarPage = lazy(() => import("@/pages/shared/Calendar"));
+const ModerationPage = lazy(() => import("@/pages/admin/Moderation"));
 const TeacherDashboard = lazy(() => import("@/pages/teacher/Dashboard"));
 const TeacherStudentPage = lazy(() => import("@/pages/teacher/StudentDetail"));
 const ExamsPage = lazy(() => import("@/pages/teacher/Exams"));
 const ExamGeneratorPage = lazy(() => import("@/pages/teacher/ExamGenerator"));
 const ExamDetailPage = lazy(() => import("@/pages/teacher/ExamDetail"));
+const StudentExamsPage = lazy(() => import("@/pages/student/Exams"));
+const ExamSittingPage = lazy(() => import("@/pages/student/Exams").then((m) => ({ default: m.ExamSittingPage })));
 
 const ALL_ROLES: Role[] = ["admin", "teacher", "student"];
 
@@ -66,6 +74,10 @@ export default function App() {
 
       <Route element={<RequireRole roles={ALL_ROLES}><AppShell /></RequireRole>}>
         <Route path="profile" element={<ProfilePage />} />
+        <Route path="memos" element={<MemosPage />} />
+        <Route path="memos/:memoId" element={<MemosPage />} />
+        <Route path="notifications" element={<NotificationsPage />} />
+        <Route path="calendar" element={<CalendarPage />} />
       </Route>
 
       <Route path="admin" element={<RequireRole roles={["admin"]}><AppShell /></RequireRole>}>
@@ -78,6 +90,9 @@ export default function App() {
         <Route path="classes/:classId" element={<AdminClassDetailPage />} />
         <Route path="teacher-assignments" element={<TeacherAssignmentsPage />} />
         <Route path="school" element={<SchoolPage />} />
+        <Route path="content" element={<ContentPage />} />
+        <Route path="memos" element={<AdminMemosPage />} />
+        <Route path="moderation" element={<ModerationPage />} />
         <Route path="audit-log" element={<AuditLogPage />} />
       </Route>
 
@@ -87,6 +102,8 @@ export default function App() {
         <Route path="topics/:topicId" element={<TopicPage />} />
         <Route path="practice" element={<PracticePage />} />
         <Route path="practice/set/:setId" element={<PracticeSessionPage />} />
+        <Route path="exams" element={<StudentExamsPage />} />
+        <Route path="exams/:publicationId" element={<ExamSittingPage />} />
         <Route path="community" element={<CommunityPage space="student" />} />
         <Route path="community/:postId" element={<PostPage />} />
       </Route>

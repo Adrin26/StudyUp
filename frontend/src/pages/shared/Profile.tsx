@@ -11,6 +11,8 @@ import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/ca
 import { Input } from "@/components/ui/input";
 import { api } from "@/lib/api";
 import { supabase, useAuth } from "@/lib/auth";
+import { useApi } from "@/lib/useApi";
+import { timeAgo } from "@/lib/utils";
 import { confirmMessage, confirmPasswords, newPassword } from "@/lib/validation";
 
 const schema = z
@@ -64,8 +66,72 @@ export default function ProfilePage() {
         </dl>
       </Card>
 
+      {user.role === "student" && <XpHistory />}
+      <XpRules />
       <ChangePassword />
     </div>
+  );
+}
+
+const XP_REASON: Record<string, string> = {
+  answer: "Answering questions",
+  quiz_complete: "Finishing quizzes",
+  lesson_complete: "Finishing lessons",
+  badge: "Badges",
+  opening_balance: "Earned before history was kept",
+};
+
+function XpHistory() {
+  const { data } = useApi<{ total: number; by_reason: Record<string, number>; recent: { id: string; amount: number; reason: string; created_at: string }[] }>("/api/students/me/xp");
+  if (!data) return null;
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Your XP: {data.total}</CardTitle>
+        <CardDescription>Every XP change is recorded, so your total always adds up.</CardDescription>
+      </CardHeader>
+      <dl className="grid gap-x-6 gap-y-2 sm:grid-cols-2">
+        {Object.entries(data.by_reason).map(([reason, amount]) => (
+          <div key={reason} className="flex justify-between text-sm">
+            <dt>{XP_REASON[reason] ?? reason}</dt>
+            <dd className="font-bold">{amount}</dd>
+          </div>
+        ))}
+      </dl>
+      {data.recent.length > 0 && (
+        <ul className="space-y-1 border-t pt-3 text-sm">
+          {data.recent.slice(0, 10).map((e) => (
+            <li key={e.id} className="flex justify-between">
+              <span className="text-muted-foreground">
+                {XP_REASON[e.reason] ?? e.reason} · {timeAgo(e.created_at)}
+              </span>
+              <span className="font-semibold text-emerald-700">+{e.amount}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </Card>
+  );
+}
+
+function XpRules() {
+  const { data } = useApi<{ xp_per_level: number; earning: { label: string; xp: string; note: string }[]; not_awarded: string[] }>("/api/gamification/rules");
+  if (!data) return null;
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>How XP is earned</CardTitle>
+        <CardDescription>XP is awarded by the server. Every {data.xp_per_level} XP is a new level.</CardDescription>
+      </CardHeader>
+      <ul className="space-y-2 text-sm">
+        {data.earning.map((r) => (
+          <li key={r.label}>
+            <span className="font-semibold">{r.label}</span>: {r.xp} XP <span className="text-muted-foreground">— {r.note}</span>
+          </li>
+        ))}
+      </ul>
+      <p className="text-sm text-muted-foreground">No XP for: {data.not_awarded.join(", ").toLowerCase()}.</p>
+    </Card>
   );
 }
 

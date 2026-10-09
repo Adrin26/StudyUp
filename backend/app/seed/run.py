@@ -17,6 +17,7 @@ from ..models import (
     AcademicYear,
     Assignment,
     AssignmentStudent,
+    CalendarEvent,
     ClassStudent,
     Comment,
     Lesson,
@@ -83,10 +84,12 @@ def _reset_schema() -> None:
 
 def run(reset: bool = True) -> None:
     settings = get_settings()
-    if settings.auth_mode != "local" or settings.environment == "production" or "supabase" in str(engine.url):
+    local_db = engine.url.host in (None, "localhost", "127.0.0.1", "::1")
+    if settings.auth_mode != "local" or settings.environment == "production" or not local_db:
         raise SystemExit(
             "The demo seed drops all tables and creates demo accounts; it only runs with AUTH_MODE=local "
-            "outside production, against SQLite or a local Postgres. For Supabase, apply the migrations and create real users."
+            "outside production, against SQLite or a Postgres on this machine. For a hosted database, apply the migrations "
+            "and create real users (python -m app.cli create-admin)."
         )
     if reset:
         _reset_schema()
@@ -124,10 +127,24 @@ def run(reset: bool = True) -> None:
         _simulate_history(db, rng, students, topics)
         _community(db, rng, school, students, teachers, subjects, topics)
         _assignment(db, teachers["farid"], classes["4 Bestari"], subjects["MATH"], topics["quadratic"])
+        _calendar(db, school, admin)
         db.commit()
         counts = {m.__tablename__: db.query(m).count() for m in (Profile, Question, QuestionAttempt, StudentTopicProgress, Post)}
     print("DEMO DATA seeded (development only):", counts)
     print(f"Every demo account uses the password {settings.demo_password!r}. Admin: admin@school.demo")
+
+
+def _calendar(db: Session, school: School, admin: Profile) -> None:
+    today = gamification.today_my()
+    events = [
+        ("Demo: Sports Day", "event", "all", 9, 9),
+        ("Demo: Mid-year examination week", "exam", "all", 21, 25),
+        ("Demo: Staff meeting", "meeting", "teachers", 3, 3),
+        ("Demo: School holiday", "holiday", "all", 35, 43),
+    ]
+    for title, kind, audience, start, end in events:
+        db.add(CalendarEvent(school_id=school.id, title=title, kind=kind, audience=audience, created_by=admin.id,
+                             start_date=today + timedelta(days=start), end_date=today + timedelta(days=end)))
 
 
 def _curriculum(db: Session, rng: random.Random) -> tuple[dict[str, Subject], dict[str, Topic]]:
@@ -271,8 +288,8 @@ def _simulate_history(db: Session, rng: random.Random, students: list[Profile], 
                     db.add(QuestionAttempt(student_id=s.id, question_id=q.id, topic_id=q.topic_id, subject_id=q.subject_id, set_id=qs.id,
                                            answer=answer, is_correct=ok, difficulty=q.difficulty, context="quiz",
                                            time_spent_sec=rng.randint(20, 120), created_at=start + timedelta(seconds=45 * i)))
-                    s.xp += gamification.xp_for_answer(q.difficulty, ok)
-                s.xp += gamification.XP_QUIZ_COMPLETE
+                    gamification.award_xp(db, s, gamification.xp_for_answer(q.difficulty, ok), "answer", q.id, at=start + timedelta(seconds=45 * i))
+                gamification.award_xp(db, s, gamification.XP_QUIZ_COMPLETE, "quiz_complete", qs.id, at=start + timedelta(minutes=8))
                 qs.result = {
                     "set_id": qs.id,
                     "topic": {"id": topic.id, "name": topic.name, "subject_id": topic.subject_id},

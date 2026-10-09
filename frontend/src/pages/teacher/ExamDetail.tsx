@@ -9,6 +9,7 @@ import { Card } from "@/components/ui/card";
 import { api } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
 import type { QuestionFull, SubjectDashboard } from "@/types";
+import { ExamPublications } from "./ExamPublications";
 
 interface Exam {
   id: string;
@@ -31,8 +32,12 @@ export default function ExamDetailPage() {
 
   const remove = async () => {
     if (!confirm("Delete this exam?")) return;
-    await api.del(`/api/exams/${exam.id}`);
-    navigate("/teacher/exams");
+    try {
+      await api.del(`/api/exams/${exam.id}`);
+      navigate("/teacher/exams");
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Could not delete this exam");
+    }
   };
 
   return (
@@ -72,6 +77,8 @@ export default function ExamDetailPage() {
           </Button>
         </div>
       </div>
+
+      <ExamPublications examId={exam.id} />
 
       <ol className="space-y-3">
         {exam.questions.map((q, i) => (

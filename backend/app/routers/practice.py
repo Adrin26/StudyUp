@@ -7,7 +7,7 @@ from ..models import Assignment, AssignmentStudent, Profile, Question, QuestionS
 from ..schemas import PracticeAnswerIn, PracticeGenerateIn
 from ..permissions import require_student
 from ..security import get_current_user
-from ..services import randomizer
+from ..services import assignment_rules, randomizer
 from ..services.gamification import award_badges
 from ..services.progress import record_attempt, recompute_topic
 from ..services.question_bank import filter_questions, names_lookup, public_question
@@ -91,6 +91,10 @@ def _set_payload(db: Session, qs: QuestionSet, student: Profile, assignment: Ass
     attempts = set_attempts(db, qs.id, student.id)
     topics, subjects = names_lookup(db)
     status_row = db.get(AssignmentStudent, {"assignment_id": assignment.id, "student_id": student.id}) if assignment else None
+    visible = assignment is None or assignment_rules.answers_visible(assignment)
+    answers = {i.question_id: feedback(i.question, attempts[i.question_id]) for i in qs.items if i.question_id in attempts}
+    if not visible:
+        answers = {qid: assignment_rules.hide_feedback(a) for qid, a in answers.items()}
     return {
         "id": qs.id,
         "kind": qs.kind,
@@ -98,9 +102,13 @@ def _set_payload(db: Session, qs: QuestionSet, student: Profile, assignment: Ass
         "seed": qs.seed,
         "config": qs.config,
         "status": status_row.status if status_row else qs.status,
-        "assignment": {"id": assignment.id, "title": assignment.title, "instructions": assignment.instructions, "due_date": assignment.due_date} if assignment else None,
+        "assignment": {
+            "id": assignment.id, "title": assignment.title, "instructions": assignment.instructions, "due_date": assignment.due_date,
+            "available_from": assignment.available_from, "feedback_release": assignment.feedback_release,
+            "open": assignment_rules.is_open(assignment), "past_due": assignment_rules.is_past_due(assignment), "answers_visible": visible,
+        } if assignment else None,
         "questions": [public_question(i.question, {"topic_name": topics.get(i.question.topic_id), "subject_name": subjects.get(i.question.subject_id)}) for i in qs.items],
-        "answers": {i.question_id: feedback(i.question, attempts[i.question_id]) for i in qs.items if i.question_id in attempts},
+        "answers": answers,
     }
 
 
@@ -138,12 +146,15 @@ def generate_practice(body: PracticeGenerateIn, student: Profile = Depends(requi
 @router.get("/sets/{set_id}")
 def get_set(set_id: str, student: Profile = Depends(require_student), db: Session = Depends(get_db)):
     qs, assignment = _accessible_set(db, set_id, student)
+    if assignment and not assignment_rules.is_open(assignment):
+        raise HTTPException(status.HTTP_409_CONFLICT, "This assignment has not opened yet")
     return _set_payload(db, qs, student, assignment)
 
 
 @router.post("/answer")
 def answer(body: PracticeAnswerIn, student: Profile = Depends(require_student), db: Session = Depends(get_db)):
     context = "practice"
+    assignment = None
     if body.set_id:
         qs, assignment = _accessible_set(db, body.set_id, student)
         item = next((i for i in qs.items if i.question_id == body.question_id), None)
@@ -151,7 +162,10 @@ def answer(body: PracticeAnswerIn, student: Profile = Depends(require_student), 
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "Question is not part of this set")
         existing = set_attempts(db, qs.id, student.id).get(body.question_id)
         if existing:
-            return feedback(item.question, existing)
+            result = feedback(item.question, existing)
+            return result if assignment is None or assignment_rules.answers_visible(assignment) else assignment_rules.hide_feedback(result)
+        if assignment:
+            assignment_rules.ensure_can_answer(assignment)
         question = item.question
         context = "assignment" if assignment else "practice"
     else:
@@ -159,6 +173,11 @@ def answer(body: PracticeAnswerIn, student: Profile = Depends(require_student), 
         if question is None or question.status != "published":
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Question not found")
 
+    if assignment and not assignment_rules.answers_visible(assignment):
+        # XP, badges and mastery all move with correctness, so none of them change until answers are released.
+        attempt, _ = record_attempt(db, student, question, body.answer, body.set_id, context, body.time_spent_sec, award_xp=False)
+        db.commit()
+        return assignment_rules.hide_feedback(feedback(question, attempt))
     attempt, xp = record_attempt(db, student, question, body.answer, body.set_id, context, body.time_spent_sec)
     progress = recompute_topic(db, student.id, question.topic_id)
     award_badges(db, student)
@@ -181,11 +200,14 @@ def complete_set(set_id: str, student: Profile = Depends(require_student), db: S
 
     if assignment:
         row = db.get(AssignmentStudent, {"assignment_id": assignment.id, "student_id": student.id})
-        row.status, row.score, row.completed_at = "completed", percentage, utcnow()
+        if row.status != "completed":
+            row.status, row.score, row.completed_at = "completed", percentage, utcnow()
     elif qs.owner_id == student.id:
         qs.status = "completed"
         qs.completed_at = utcnow()
     db.commit()
+    if assignment and not assignment_rules.answers_visible(assignment):
+        return {"answered": len(attempts), "total": total, "feedback_hidden": True}
     return {
         "score": correct,
         "answered": len(attempts),

@@ -62,7 +62,7 @@ def quiz_payload(db: Session, qs: QuestionSet, student: Profile) -> dict:
 @router.post("/start")
 def start_quiz(body: QuizStartIn, student: Profile = Depends(require_student), db: Session = Depends(get_db)):
     topic = db.get(Topic, body.topic_id)
-    if topic is None:
+    if topic is None or topic.status != "published" or topic.subject.status != "published":
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Topic not found")
 
     active = db.scalar(
@@ -143,7 +143,7 @@ def submit_quiz(body: SetIdIn, student: Profile = Depends(require_student), db: 
 
     xp = sum(gamification.xp_for_answer(a.difficulty, a.is_correct) for a in attempts.values())
     bonus = gamification.XP_QUIZ_COMPLETE + (gamification.XP_PERFECT_QUIZ if correct == total else 0)
-    student.xp += bonus
+    gamification.award_xp(db, student, bonus, "quiz_complete", qs.id)
     qs.status = "completed"
     qs.completed_at = utcnow()
     db.flush()

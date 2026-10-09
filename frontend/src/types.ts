@@ -232,6 +232,8 @@ export interface AssignmentInfo {
   topic: string | null;
   set_id: string;
   due_date: string | null;
+  available_from: string | null;
+  open: boolean;
   status: "assigned" | "completed";
   score: number | null;
 }
@@ -302,6 +304,8 @@ export interface AnswerFeedback {
   explanation: string | null;
   xp_gained: number;
   topic_mastery?: number;
+  /** Set when the teacher holds answers until the due date; correctness fields are then absent. */
+  feedback_hidden?: boolean;
 }
 
 export interface QuizSession {
@@ -377,7 +381,17 @@ export interface PracticeSet {
   title: string;
   seed: number | null;
   status: string;
-  assignment: { id: string; title: string; instructions: string | null; due_date: string | null } | null;
+  assignment: {
+    id: string;
+    title: string;
+    instructions: string | null;
+    due_date: string | null;
+    available_from: string | null;
+    feedback_release: "immediate" | "after_due";
+    open: boolean;
+    past_due: boolean;
+    answers_visible: boolean;
+  } | null;
   questions: QuestionPublic[];
   answers: Record<string, AnswerFeedback>;
 }
@@ -397,11 +411,27 @@ export interface Post {
   created_at: string;
   author: { id: string; name: string; role: Role };
   my_vote: number;
+  bookmarked: boolean;
+  status: "visible" | "hidden";
+  moderation_reason?: string | null;
+}
+
+export interface PostComment {
+  id: string;
+  parent_id: string | null;
+  body: string;
+  created_at: string;
+  author: { id: string; name: string; role: Role };
+  status: "visible" | "hidden";
+  moderation_reason: string | null;
 }
 
 export interface PostDetail extends Post {
   can_comment: boolean;
-  comments: { id: string; body: string; created_at: string; author: { id: string; name: string; role: Role } }[];
+  can_vote: boolean;
+  can_report: boolean;
+  can_moderate: boolean;
+  comments: PostComment[];
 }
 
 export interface TeacherContext {

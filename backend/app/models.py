@@ -213,8 +213,12 @@ class ClassStudent(Base):
     left_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
 
 
+CONTENT_STATUSES = ("draft", "published", "archived")
+
+
 class Subject(Base):
     __tablename__ = "subjects"
+    __table_args__ = (CheckConstraint("status IN ('draft', 'published', 'archived')", name="ck_subjects_status"),)
     id: Mapped[str] = pk()
     code: Mapped[str] = mapped_column(String(30), unique=True)
     name: Mapped[str] = mapped_column(String(120))
@@ -222,20 +226,48 @@ class Subject(Base):
     color: Mapped[str] = mapped_column(String(30), default="violet")
     description: Mapped[str | None] = mapped_column(Text)
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    status: Mapped[str] = mapped_column(String(20), default="published", server_default="published")
 
     topics: Mapped[list["Topic"]] = relationship(back_populates="subject", order_by="Topic.sort_order")
+    form_levels: Mapped[list["SubjectFormLevel"]] = relationship(cascade="all, delete-orphan")
+
+
+class SubjectFormLevel(Base):
+    """Forms this subject is offered to. Empty means every form."""
+
+    __tablename__ = "subject_form_levels"
+    subject_id: Mapped[str] = mapped_column(ForeignKey("subjects.id", ondelete="CASCADE"), primary_key=True)
+    form: Mapped[int] = mapped_column(Integer, primary_key=True)
 
 
 class Topic(Base):
     __tablename__ = "topics"
+    __table_args__ = (CheckConstraint("status IN ('draft', 'published', 'archived')", name="ck_topics_status"),)
     id: Mapped[str] = pk()
     subject_id: Mapped[str] = mapped_column(ForeignKey("subjects.id", ondelete="CASCADE"), index=True)
+    parent_id: Mapped[str | None] = mapped_column(ForeignKey("topics.id", ondelete="CASCADE"), index=True)
     name: Mapped[str] = mapped_column(String(160))
     form: Mapped[int | None] = mapped_column(Integer)
     description: Mapped[str | None] = mapped_column(Text)
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    status: Mapped[str] = mapped_column(String(20), default="published", server_default="published")
 
     subject: Mapped[Subject] = relationship(back_populates="topics")
+    objectives: Mapped[list["LearningObjective"]] = relationship(order_by="LearningObjective.position", cascade="all, delete-orphan")
+
+
+class LearningObjective(Base):
+    __tablename__ = "learning_objectives"
+    id: Mapped[str] = pk()
+    topic_id: Mapped[str] = mapped_column(ForeignKey("topics.id", ondelete="CASCADE"), index=True)
+    position: Mapped[int] = mapped_column(Integer, default=0)
+    text: Mapped[str] = mapped_column(Text)
+
+
+class TopicPrerequisite(Base):
+    __tablename__ = "topic_prerequisites"
+    topic_id: Mapped[str] = mapped_column(ForeignKey("topics.id", ondelete="CASCADE"), primary_key=True)
+    prerequisite_id: Mapped[str] = mapped_column(ForeignKey("topics.id", ondelete="CASCADE"), primary_key=True)
 
 
 class StudentSubject(Base):
@@ -255,11 +287,13 @@ class TeacherSubject(Base):
 
 class Lesson(Base):
     __tablename__ = "lessons"
+    __table_args__ = (CheckConstraint("status IN ('draft', 'published', 'archived')", name="ck_lessons_status"),)
     id: Mapped[str] = pk()
     topic_id: Mapped[str] = mapped_column(ForeignKey("topics.id", ondelete="CASCADE"), index=True)
     title: Mapped[str] = mapped_column(String(200))
     summary: Mapped[str | None] = mapped_column(Text)
     estimated_minutes: Mapped[int] = mapped_column(Integer, default=5)
+    status: Mapped[str] = mapped_column(String(20), default="published", server_default="published")
 
     slides: Mapped[list["LessonSlide"]] = relationship(order_by="LessonSlide.position", cascade="all, delete-orphan")
 
@@ -301,7 +335,9 @@ class Question(Base):
     image_url: Mapped[str | None] = mapped_column(String(500))
     skill: Mapped[str | None] = mapped_column(String(120))  # sub-skill used for strong/weak areas
     source: Mapped[str] = mapped_column(String(30), default="sample")  # spm_past_year | sample | teacher | ai_generated
-    status: Mapped[str] = mapped_column(String(20), default="published", index=True)  # published | pending_review | rejected
+    form: Mapped[int | None] = mapped_column(Integer)
+    attribution: Mapped[str | None] = mapped_column(String(300))
+    status: Mapped[str] = mapped_column(String(20), default="published", index=True)  # draft | published | archived
     created_by: Mapped[str | None] = mapped_column(ForeignKey("profiles.id"))
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
 
@@ -341,6 +377,7 @@ class QuestionSetQuestion(Base):
 
 class QuestionAttempt(Base):
     __tablename__ = "question_attempts"
+    __table_args__ = (UniqueConstraint("student_id", "set_id", "question_id", name="uq_attempts_set_question"),)
     id: Mapped[str] = pk()
     student_id: Mapped[str] = mapped_column(ForeignKey("profiles.id", ondelete="CASCADE"), index=True)
     question_id: Mapped[str] = mapped_column(ForeignKey("questions.id", ondelete="CASCADE"), index=True)
@@ -379,6 +416,9 @@ class Assignment(Base):
     topic_id: Mapped[str | None] = mapped_column(ForeignKey("topics.id"))
     set_id: Mapped[str] = mapped_column(ForeignKey("question_sets.id", ondelete="CASCADE"))
     due_date: Mapped[date | None] = mapped_column(Date)
+    available_from: Mapped[datetime | None] = mapped_column(UTCDateTime())
+    # immediate | after_due: whether students see correct answers as they go or only once the due date has passed.
+    feedback_release: Mapped[str] = mapped_column(String(20), default="immediate", server_default="immediate")
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
 
 
@@ -391,8 +431,51 @@ class AssignmentStudent(Base):
     completed_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
 
 
+class ExamPublication(Base):
+    """An exam opened to one class. Students may start between opens_at and closes_at; answers appear at release_at."""
+
+    __tablename__ = "exam_publications"
+    __table_args__ = (UniqueConstraint("exam_id", "class_id", name="uq_exam_publications_exam_class"),)
+    id: Mapped[str] = pk()
+    exam_id: Mapped[str] = mapped_column(ForeignKey("question_sets.id", ondelete="CASCADE"), index=True)
+    class_id: Mapped[str] = mapped_column(ForeignKey("classes.id", ondelete="CASCADE"), index=True)
+    opens_at: Mapped[datetime] = mapped_column(UTCDateTime())
+    closes_at: Mapped[datetime] = mapped_column(UTCDateTime())
+    release_at: Mapped[datetime] = mapped_column(UTCDateTime())
+    duration_minutes: Mapped[int | None] = mapped_column(Integer)
+    published_by: Mapped[str] = mapped_column(ForeignKey("profiles.id"))
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
+
+
+class ExamAttempt(Base):
+    __tablename__ = "exam_attempts"
+    __table_args__ = (UniqueConstraint("publication_id", "student_id", name="uq_exam_attempts_student"),)
+    id: Mapped[str] = pk()
+    publication_id: Mapped[str] = mapped_column(ForeignKey("exam_publications.id", ondelete="CASCADE"), index=True)
+    student_id: Mapped[str] = mapped_column(ForeignKey("profiles.id", ondelete="CASCADE"), index=True)
+    started_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
+    submitted_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
+    marks_awarded: Mapped[int | None] = mapped_column(Integer)
+    total_marks: Mapped[int | None] = mapped_column(Integer)
+
+
+class ExamAnswer(Base):
+    """Kept apart from question_attempts so exam answers never feed XP, mastery or practice feedback."""
+
+    __tablename__ = "exam_answers"
+    __table_args__ = (UniqueConstraint("attempt_id", "question_id", name="uq_exam_answers_question"),)
+    id: Mapped[str] = pk()
+    attempt_id: Mapped[str] = mapped_column(ForeignKey("exam_attempts.id", ondelete="CASCADE"), index=True)
+    question_id: Mapped[str] = mapped_column(ForeignKey("questions.id", ondelete="CASCADE"))
+    answer: Mapped[str] = mapped_column(Text)
+    is_correct: Mapped[bool] = mapped_column(Boolean)
+    marks_awarded: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
+
+
 class Post(Base):
     __tablename__ = "posts"
+    __table_args__ = (CheckConstraint("status IN ('visible', 'hidden')", name="ck_posts_status"),)
     id: Mapped[str] = pk()
     author_id: Mapped[str] = mapped_column(ForeignKey("profiles.id", ondelete="CASCADE"))
     space: Mapped[str] = mapped_column(String(20), index=True)  # student | teacher
@@ -405,14 +488,57 @@ class Post(Base):
     score: Mapped[int] = mapped_column(Integer, default=0)
     comment_count: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow, index=True)
+    # visible | hidden. Hidden content is kept for the record but shown only to its author and moderators.
+    status: Mapped[str] = mapped_column(String(20), default="visible", server_default="visible")
+    moderation_reason: Mapped[str | None] = mapped_column(String(300))
+    moderated_by: Mapped[str | None] = mapped_column(ForeignKey("profiles.id"))
+    moderated_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
 
 
 class Comment(Base):
     __tablename__ = "comments"
+    __table_args__ = (CheckConstraint("status IN ('visible', 'hidden')", name="ck_comments_status"),)
     id: Mapped[str] = pk()
     post_id: Mapped[str] = mapped_column(ForeignKey("posts.id", ondelete="CASCADE"), index=True)
     author_id: Mapped[str] = mapped_column(ForeignKey("profiles.id", ondelete="CASCADE"))
+    # One level of replies: a reply's parent is always a top-level comment.
+    parent_id: Mapped[str | None] = mapped_column(ForeignKey("comments.id", ondelete="CASCADE"))
     body: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
+    status: Mapped[str] = mapped_column(String(20), default="visible", server_default="visible")
+    moderation_reason: Mapped[str | None] = mapped_column(String(300))
+    moderated_by: Mapped[str | None] = mapped_column(ForeignKey("profiles.id"))
+    moderated_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
+
+
+class PostBookmark(Base):
+    __tablename__ = "post_bookmarks"
+    post_id: Mapped[str] = mapped_column(ForeignKey("posts.id", ondelete="CASCADE"), primary_key=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("profiles.id", ondelete="CASCADE"), primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
+
+
+REPORT_REASONS = ("spam", "inappropriate", "bullying", "personal_info", "off_topic", "other")
+
+
+class ContentReport(Base):
+    """A user's report on a post or comment, routed to the admins of the school that owns the content."""
+
+    __tablename__ = "content_reports"
+    __table_args__ = (
+        CheckConstraint("status IN ('open', 'actioned', 'dismissed')", name="ck_content_reports_status"),
+        CheckConstraint("(post_id IS NULL) <> (comment_id IS NULL)", name="ck_content_reports_target"),
+    )
+    id: Mapped[str] = pk()
+    school_id: Mapped[str] = mapped_column(ForeignKey("schools.id", ondelete="CASCADE"), index=True)
+    reporter_id: Mapped[str] = mapped_column(ForeignKey("profiles.id", ondelete="CASCADE"), index=True)
+    post_id: Mapped[str | None] = mapped_column(ForeignKey("posts.id", ondelete="CASCADE"), index=True)
+    comment_id: Mapped[str | None] = mapped_column(ForeignKey("comments.id", ondelete="CASCADE"), index=True)
+    reason: Mapped[str] = mapped_column(String(30))
+    details: Mapped[str | None] = mapped_column(String(500))
+    status: Mapped[str] = mapped_column(String(20), default="open", server_default="open")
+    resolved_by: Mapped[str | None] = mapped_column(ForeignKey("profiles.id"))
+    resolved_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
 
 
@@ -440,6 +566,54 @@ class StudentBadge(Base):
     earned_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
 
 
+MEMO_AUDIENCES = ("all", "teachers", "students")
+
+
+class SchoolMemo(Base):
+    __tablename__ = "school_memos"
+    __table_args__ = (
+        CheckConstraint("status IN ('draft', 'published', 'archived')", name="ck_memos_status"),
+        CheckConstraint("audience IN ('all', 'teachers', 'students')", name="ck_memos_audience"),
+    )
+    id: Mapped[str] = pk()
+    school_id: Mapped[str] = mapped_column(ForeignKey("schools.id", ondelete="CASCADE"), index=True)
+    title: Mapped[str] = mapped_column(String(200))
+    body: Mapped[str] = mapped_column(Text)
+    audience: Mapped[str] = mapped_column(String(20), default="all")
+    status: Mapped[str] = mapped_column(String(20), default="draft")
+    publish_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
+    expires_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
+    requires_acknowledgement: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_by: Mapped[str | None] = mapped_column(ForeignKey("profiles.id"))
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow, onupdate=utcnow)
+
+    attachments: Mapped[list["MemoAttachment"]] = relationship(cascade="all, delete-orphan")
+
+
+class MemoAttachment(Base):
+    __tablename__ = "memo_attachments"
+    id: Mapped[str] = pk()
+    memo_id: Mapped[str] = mapped_column(ForeignKey("school_memos.id", ondelete="CASCADE"), index=True)
+    filename: Mapped[str] = mapped_column(String(200))
+    content_type: Mapped[str] = mapped_column(String(100))
+    storage_key: Mapped[str] = mapped_column(String(300))
+
+
+class MemoRead(Base):
+    __tablename__ = "memo_reads"
+    memo_id: Mapped[str] = mapped_column(ForeignKey("school_memos.id", ondelete="CASCADE"), primary_key=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("profiles.id", ondelete="CASCADE"), primary_key=True)
+    read_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
+
+
+class MemoAcknowledgement(Base):
+    __tablename__ = "memo_acknowledgements"
+    memo_id: Mapped[str] = mapped_column(ForeignKey("school_memos.id", ondelete="CASCADE"), primary_key=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("profiles.id", ondelete="CASCADE"), primary_key=True)
+    acknowledged_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
+
+
 class Notification(Base):
     __tablename__ = "notifications"
     id: Mapped[str] = pk()
@@ -449,6 +623,40 @@ class Notification(Base):
     body: Mapped[str | None] = mapped_column(Text)
     link: Mapped[str | None] = mapped_column(String(300))
     read: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
+
+
+class XPEvent(Base):
+    """Ledger of every XP change, so totals can be explained and recalculated if the rules change."""
+
+    __tablename__ = "student_xp_events"
+    id: Mapped[str] = pk()
+    student_id: Mapped[str] = mapped_column(ForeignKey("profiles.id", ondelete="CASCADE"), index=True)
+    amount: Mapped[int] = mapped_column(Integer)
+    # answer | quiz_complete | lesson_complete | badge | opening_balance
+    reason: Mapped[str] = mapped_column(String(30))
+    ref_id: Mapped[str | None] = mapped_column(String(36))
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow, index=True)
+
+
+CALENDAR_KINDS = ("event", "holiday", "exam", "meeting", "deadline")
+
+
+class CalendarEvent(Base):
+    __tablename__ = "calendar_events"
+    __table_args__ = (
+        CheckConstraint("end_date >= start_date", name="ck_calendar_events_dates"),
+        CheckConstraint("audience IN ('all', 'teachers', 'students')", name="ck_calendar_events_audience"),
+    )
+    id: Mapped[str] = pk()
+    school_id: Mapped[str] = mapped_column(ForeignKey("schools.id", ondelete="CASCADE"), index=True)
+    title: Mapped[str] = mapped_column(String(200))
+    description: Mapped[str | None] = mapped_column(Text)
+    kind: Mapped[str] = mapped_column(String(20), default="event")
+    audience: Mapped[str] = mapped_column(String(20), default="all")
+    start_date: Mapped[date] = mapped_column(Date, index=True)
+    end_date: Mapped[date] = mapped_column(Date)
+    created_by: Mapped[str] = mapped_column(ForeignKey("profiles.id"))
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
 
 

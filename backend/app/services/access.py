@@ -74,6 +74,15 @@ def ensure_teaches_subject(db: Session, teacher: Profile, subject_id: str) -> No
         raise HTTPException(status.HTTP_403_FORBIDDEN, "You do not teach this subject")
 
 
+def ensure_teaches_subject_in_class(db: Session, teacher: Profile, class_id: str, subject_id: str) -> None:
+    """Class teacher of the class, or assigned to this subject in this class."""
+    if class_id in class_teacher_class_ids(db, teacher):
+        return
+    if any(ts.class_id == class_id and ts.subject_id == subject_id for ts in subject_assignments(db, teacher)):
+        return
+    raise HTTPException(status.HTTP_403_FORBIDDEN, "You do not teach this subject in this class")
+
+
 def ensure_can_view_class(db: Session, teacher: Profile, class_id: str) -> None:
     if class_id in class_teacher_class_ids(db, teacher):
         return

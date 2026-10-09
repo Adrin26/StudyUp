@@ -84,9 +84,12 @@ def recommend(db: Session, student: Profile) -> list[dict]:
     if strong_subject:
         latest_year = db.scalar(select(func.max(Question.year)).where(Question.subject_id == strong_subject.id))
         if latest_year:
+            real_paper = db.scalar(select(func.count()).select_from(Question).where(
+                Question.subject_id == strong_subject.id, Question.year == latest_year, Question.source == "spm_past_year"))
+            label = f"{latest_year} SPM" if real_paper else f"{latest_year}-style"
             recs.append({
                 "kind": "past_year",
-                "title": f"Try {latest_year} SPM {strong_subject.name} questions",
+                "title": f"Try {label} {strong_subject.name} questions",
                 "reason": "You're doing well — test yourself with exam-style questions.",
                 "subject": strong_subject.name,
                 "action": {"type": "past_year", "subject_id": strong_subject.id, "year": latest_year},

@@ -6,11 +6,23 @@ from ..database import get_db
 from ..models import Lesson, LessonProgress, Profile, Question, QuestionSet, Subject, Topic
 from ..permissions import require_teacher
 from ..security import get_current_user
+from ..services.mastery import LEVELS, RECENT_WEIGHT, RECENT_WINDOW
 from ..services.progress import enrolled_subjects, subject_progress, topic_progress_map, topic_view
 from ..services.question_bank import full_question
 from ..services.access import ensure_teaches_subject
 
 router = APIRouter(prefix="/api", tags=["subjects"])
+
+
+@router.get("/learning/config")
+def learning_config(user: Profile = Depends(get_current_user)):
+    """Thresholds the UI and the mastery formula share. Changing them is a code change, not a per-school setting."""
+    return {
+        "quiz_length": 10,
+        "recent_window": RECENT_WINDOW,
+        "recent_weight": RECENT_WEIGHT,
+        "levels": [{"min": threshold, "key": key, "label": label} for threshold, key, label in LEVELS],
+    }
 
 
 def subject_payload(s: Subject) -> dict:
@@ -20,15 +32,19 @@ def subject_payload(s: Subject) -> dict:
 @router.get("/subjects")
 def list_subjects(user: Profile = Depends(get_current_user), db: Session = Depends(get_db)):
     if user.role != "student":
-        return [subject_payload(s) | {"topics_total": len(s.topics)} for s in db.scalars(select(Subject).order_by(Subject.sort_order))]
+        rows = db.scalars(select(Subject).where(Subject.status == "published").order_by(Subject.sort_order))
+        return [subject_payload(s) | {"topics_total": sum(t.status == "published" for t in s.topics)} for s in rows]
     progress = topic_progress_map(db, user.id)
-    return [subject_payload(s) | subject_progress(list(s.topics), progress) for s in enrolled_subjects(db, user.id)]
+    return [
+        subject_payload(s) | subject_progress([t for t in s.topics if t.status == "published"], progress)
+        for s in enrolled_subjects(db, user.id)
+    ]
 
 
 @router.get("/subjects/{subject_id}/topics")
 def subject_topics(subject_id: str, user: Profile = Depends(get_current_user), db: Session = Depends(get_db)):
     subject = db.get(Subject, subject_id)
-    if subject is None:
+    if subject is None or (user.role != "admin" and subject.status != "published"):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Subject not found")
     counts = dict(
         db.execute(
@@ -36,17 +52,21 @@ def subject_topics(subject_id: str, user: Profile = Depends(get_current_user), d
         ).all()
     )
     progress = topic_progress_map(db, user.id, subject_id) if user.role == "student" else {}
-    topics = [topic_view(t, progress.get(t.id)) | {"question_count": counts.get(t.id, 0)} for t in subject.topics]
-    return {"subject": subject_payload(subject) | subject_progress(list(subject.topics), progress), "topics": topics}
+    visible = subject.topics if user.role == "admin" else [t for t in subject.topics if t.status == "published"]
+    topics = [topic_view(t, progress.get(t.id)) | {"question_count": counts.get(t.id, 0)} for t in visible]
+    counted = subject.topics if user.role == "admin" else visible
+    return {"subject": subject_payload(subject) | subject_progress(list(counted), progress), "topics": topics}
 
 
 @router.get("/topics/{topic_id}")
 def topic_detail(topic_id: str, user: Profile = Depends(get_current_user), db: Session = Depends(get_db)):
     topic = db.get(Topic, topic_id)
-    if topic is None:
+    if topic is None or (user.role != "admin" and (topic.status != "published" or topic.subject.status != "published")):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Topic not found")
     progress = topic_progress_map(db, user.id, topic.subject_id).get(topic_id) if user.role == "student" else None
     lesson = db.scalar(select(Lesson).where(Lesson.topic_id == topic_id))
+    if lesson is not None and user.role == "student" and lesson.status != "published":
+        lesson = None
     lesson_info = None
     if lesson:
         lp = db.get(LessonProgress, {"student_id": user.id, "lesson_id": lesson.id}) if user.role == "student" else None
@@ -69,8 +89,19 @@ def topic_detail(topic_id: str, user: Profile = Depends(get_current_user), db: S
         )
         history = [{"id": s.id, "completed_at": s.completed_at, "percentage": (s.result or {}).get("percentage")} for s in sets]
     question_count = db.scalar(select(func.count()).select_from(Question).where(Question.topic_id == topic_id, Question.status == "published"))
+    if lesson is None:
+        learn_state = "unavailable"
+    elif lesson_info and lesson_info["completed"]:
+        learn_state = "completed"
+    elif lesson_info and lesson_info["current_slide"] > 0:
+        learn_state = "in_progress"
+    else:
+        learn_state = "not_started"
+    quiz_state = "completed" if history else "not_started"
     return {
         "topic": topic_view(topic, progress) | {"question_count": question_count},
+        "objectives": [{"id": o.id, "text": o.text} for o in topic.objectives],
+        "states": {"learn": learn_state, "quiz": quiz_state},
         "subject": subject_payload(topic.subject),
         "lesson": lesson_info,
         "quiz_history": history,

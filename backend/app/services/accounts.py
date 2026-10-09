@@ -79,7 +79,7 @@ def send_set_password_link(db: Session, user: Profile, actor: Profile, request: 
 
 
 def delivery_message(delivered: bool) -> str:
-    if delivered and get_settings().is_development:
+    if delivered and get_settings().is_development and not get_settings().smtp_host:
         return "Link created. Email is not configured in development, so the link was printed to the API console."
     if delivered:
         return "A set-password link was emailed to the user."

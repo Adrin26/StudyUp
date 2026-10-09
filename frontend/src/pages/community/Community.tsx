@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
-import { MessageCircle, PenSquare, Search } from "lucide-react";
+import { Bookmark, MessageCircle, PenSquare, Search } from "lucide-react";
 import { EmptyState, ErrorState, Spinner } from "@/components/states";
 import { VoteButton } from "@/components/vote-button";
 import { Badge } from "@/components/ui/badge";
@@ -28,11 +28,12 @@ export default function CommunityPage({ space }: { space: "student" | "teacher" 
   const [topicId, setTopicId] = useState("");
   const [category, setCategory] = useState("");
   const [sort, setSort] = useState<"new" | "top">("new");
+  const [saved, setSaved] = useState(false);
   const { data: meta } = useApi<Meta>("/api/community/meta");
   const { data: subjects } = useApi<SubjectSummary[]>("/api/subjects");
   const { data: topicData } = useApi<{ topics: TopicSummary[] }>(subjectId && space === "student" ? `/api/subjects/${subjectId}/topics` : null);
   const { data: posts, error, loading, reload } = useApi<Post[]>(
-    `/api/community/posts${qs({ space, q: query, subject_id: subjectId, topic_id: topicId, category, sort })}`,
+    `/api/community/posts${qs({ space, q: query, subject_id: subjectId, topic_id: topicId, category, sort, saved: saved ? "true" : "" })}`,
   );
 
   useEffect(() => setTopicId(""), [subjectId]);
@@ -102,21 +103,31 @@ export default function CommunityPage({ space }: { space: "student" | "teacher" 
                 {s === "new" ? "Newest" : "Top"}
               </button>
             ))}
+            <button onClick={() => setSaved(!saved)} aria-pressed={saved} className={`inline-flex items-center gap-1 rounded-lg px-4 py-1.5 text-sm font-semibold ${saved ? "bg-card shadow-sm" : "text-muted-foreground"}`}>
+              <Bookmark className="size-3.5" /> Saved
+            </button>
           </div>
         </div>
       </Card>
 
       {error && <ErrorState message={error} onRetry={reload} />}
       {loading && !posts && <Spinner className="mx-auto size-6" />}
-      {posts && posts.length === 0 && <EmptyState emoji="💬" title="No posts yet" description={canPost ? "Be the first to start a discussion!" : "Nothing here yet."} />}
+      {posts && posts.length === 0 &&
+        (saved ? (
+          <EmptyState emoji="🔖" title="No saved posts" description="Save a post to find it here later." />
+        ) : (
+          <EmptyState emoji="💬" title="No posts yet" description={canPost ? "Be the first to start a discussion!" : "Nothing here yet."} />
+        ))}
 
       <div className="space-y-3">
         {posts?.map((p) => (
           <Link key={p.id} to={`${base}/${p.id}`} className="block">
             <Card className="flex-row gap-3 p-4 transition-all hover:border-primary/30 hover:shadow-md">
-              <VoteButton postId={p.id} score={p.score} myVote={p.my_vote} vertical />
+              <VoteButton postId={p.id} score={p.score} myVote={p.my_vote} vertical disabled={!canPost || p.author.id === user?.id || p.status !== "visible"} />
               <div className="min-w-0 flex-1 space-y-1.5">
                 <div className="flex flex-wrap items-center gap-1.5">
+                  {p.status === "hidden" && <Badge variant="danger">Hidden by moderator</Badge>}
+                  {p.bookmarked && <Bookmark className="size-3.5 fill-current text-primary" aria-label="Saved" />}
                   {p.subject && <Badge variant="secondary">{p.subject}</Badge>}
                   {p.topic && <Badge variant="muted">{p.topic}</Badge>}
                   {p.category && <Badge variant="outline">{p.category}</Badge>}
@@ -178,7 +189,11 @@ function NewPostDialog({ space, subjects, categories, onCreated }: { space: "stu
       <DialogContent>
         <DialogHeader>
           <DialogTitle>{space === "student" ? "Ask your classmates" : "Start a discussion"}</DialogTitle>
-          <DialogDescription>{space === "student" ? "Be kind and specific — share what you've tried." : "Visible to teachers from all schools."}</DialogDescription>
+          <DialogDescription>
+            {space === "student"
+              ? "Be kind and specific — share what you've tried. Links, email addresses and phone numbers aren't allowed."
+              : "Visible to teachers from all schools. Don't include student names or results."}
+          </DialogDescription>
         </DialogHeader>
         <form onSubmit={submit} className="space-y-3">
           <div className="space-y-1.5">

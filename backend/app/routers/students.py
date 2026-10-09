@@ -1,10 +1,11 @@
 from fastapi import APIRouter, Depends
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..models import Assignment, AssignmentStudent, Badge, Notification, Profile, StudentBadge, Subject, Topic
+from ..models import Assignment, AssignmentStudent, Badge, Profile, StudentBadge, Subject, Topic, XPEvent
 from ..permissions import require_student
+from ..services import assignment_rules
 from ..services.progress import enrolled_subjects, student_stats, subject_progress, topic_progress_map, topic_view
 from ..services.recommendations import recommend
 
@@ -41,8 +42,10 @@ def _assignments(db: Session, student: Profile) -> list[dict]:
             "topic": topics.get(a.topic_id),
             "set_id": a.set_id,
             "due_date": a.due_date,
+            "available_from": a.available_from,
+            "open": assignment_rules.is_open(a),
             "status": s.status,
-            "score": s.score,
+            "score": s.score if assignment_rules.answers_visible(a) else None,
         }
         for a, s, teacher, subject in rows
     ]
@@ -53,7 +56,7 @@ def dashboard(student: Profile = Depends(require_student), db: Session = Depends
     progress = topic_progress_map(db, student.id)
     subjects = []
     for s in enrolled_subjects(db, student.id):
-        topics = list(s.topics)
+        topics = [t for t in s.topics if t.status == "published"]
         sp = subject_progress(topics, progress)
         weakest = min((topic_view(t, progress[t.id]) for t in topics if t.id in progress and progress[t.id].attempts_count), key=lambda t: t["mastery"], default=None)
         subjects.append({"id": s.id, "name": s.name, "icon": s.icon, "color": s.color, **sp, "weakest_topic": weakest})
@@ -76,7 +79,7 @@ def my_progress(student: Profile = Depends(require_student), db: Session = Depen
                 "id": s.id,
                 "name": s.name,
                 "color": s.color,
-                **subject_progress(list(s.topics), progress),
+                **subject_progress([t for t in s.topics if t.status == "published"], progress),
                 "topics": [topic_view(t, progress.get(t.id)) for t in s.topics],
             }
             for s in enrolled_subjects(db, student.id)
@@ -94,7 +97,12 @@ def my_badges(student: Profile = Depends(require_student), db: Session = Depends
     return _badges(db, student)
 
 
-@router.get("/notifications")
-def my_notifications(student: Profile = Depends(require_student), db: Session = Depends(get_db)):
-    rows = db.scalars(select(Notification).where(Notification.user_id == student.id).order_by(Notification.created_at.desc()).limit(20))
-    return [{"id": n.id, "kind": n.kind, "title": n.title, "body": n.body, "link": n.link, "read": n.read, "created_at": n.created_at} for n in rows]
+@router.get("/xp")
+def my_xp(student: Profile = Depends(require_student), db: Session = Depends(get_db)):
+    events = db.scalars(select(XPEvent).where(XPEvent.student_id == student.id).order_by(XPEvent.created_at.desc()).limit(50))
+    totals = dict(db.execute(select(XPEvent.reason, func.sum(XPEvent.amount)).where(XPEvent.student_id == student.id).group_by(XPEvent.reason)).all())
+    return {
+        "total": student.xp,
+        "by_reason": totals,
+        "recent": [{"id": e.id, "amount": e.amount, "reason": e.reason, "created_at": e.created_at} for e in events],
+    }

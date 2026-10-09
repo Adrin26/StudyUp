@@ -12,7 +12,7 @@ export function AuthLayout({ title, subtitle, children }: { title: string; subti
           <h1 className="text-5xl leading-tight font-extrabold tracking-tight text-balance">Learn. Practice. Master.</h1>
           <p className="max-w-md text-lg text-white/85">Bite-sized lessons, SPM-style practice and clear progress tracking for students, teachers and schools.</p>
           <div className="flex flex-wrap gap-3">
-            {["🔥 Daily streaks", "🎯 Topic mastery", "📚 Past-year practice", "🏫 School-wide memos"].map((t) => (
+            {["🔥 Daily streaks", "🎯 Topic mastery", "📚 Exam-style practice", "🏫 School-wide memos"].map((t) => (
               <span key={t} className="rounded-full bg-white/15 px-4 py-2 text-sm font-semibold backdrop-blur">
                 {t}
               </span>

@@ -33,7 +33,7 @@ export default function PracticePage() {
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-extrabold tracking-tight sm:text-3xl">Practice</h1>
-        <p className="text-muted-foreground">SPM-style past-year questions and randomized practice sets.</p>
+        <p className="text-muted-foreground">SPM-style questions by year and topic, and randomized practice sets.</p>
       </div>
 
       <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1">
@@ -53,7 +53,7 @@ export default function PracticePage() {
         <Tabs defaultValue={initialTab} key={filters.subject.id}>
           <TabsList>
             <TabsTrigger value="past">
-              <History /> Past-year questions
+              <History /> Questions by year
             </TabsTrigger>
             <TabsTrigger value="random">
               <Shuffle /> Randomized practice

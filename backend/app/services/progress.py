@@ -1,6 +1,6 @@
 from datetime import datetime, time, timedelta
 
-from sqlalchemy import case, func, select
+from sqlalchemy import case, func, or_, select, true
 from sqlalchemy.orm import Session
 
 from ..models import (
@@ -12,7 +12,7 @@ from ..models import (
     Subject,
     Topic,
 )
-from . import gamification
+from . import assignment_rules, gamification
 from .grading import is_correct
 from .mastery import compute_mastery, mastery_level
 
@@ -25,6 +25,7 @@ def record_attempt(
     set_id: str | None,
     context: str,
     time_spent_sec: int | None = None,
+    award_xp: bool = True,
 ) -> tuple[QuestionAttempt, int]:
     correct = is_correct(question, answer)
     attempt = QuestionAttempt(
@@ -40,8 +41,9 @@ def record_attempt(
         time_spent_sec=time_spent_sec,
     )
     db.add(attempt)
-    xp = gamification.xp_for_answer(question.difficulty, correct)
-    student.xp += xp
+    db.flush()
+    xp = gamification.xp_for_answer(question.difficulty, correct) if award_xp else 0
+    gamification.award_xp(db, student, xp, "answer", attempt.id)
     gamification.touch_streak(student)
     db.flush()
     return attempt, xp
@@ -51,10 +53,18 @@ def get_progress(db: Session, student_id: str, topic_id: str) -> StudentTopicPro
     return db.get(StudentTopicProgress, {"student_id": student_id, "topic_id": topic_id})
 
 
+def released(student_id: str, db: Session):
+    """Filter out attempts on assignments whose answers are still held back from the student."""
+    held = assignment_rules.held_set_ids(db, student_id)
+    return or_(QuestionAttempt.set_id.is_(None), QuestionAttempt.set_id.not_in(held)) if held else true()
+
+
 def recompute_topic(db: Session, student_id: str, topic_id: str) -> StudentTopicProgress:
     attempts = list(
         db.scalars(
-            select(QuestionAttempt).where(QuestionAttempt.student_id == student_id, QuestionAttempt.topic_id == topic_id)
+            select(QuestionAttempt).where(
+                QuestionAttempt.student_id == student_id, QuestionAttempt.topic_id == topic_id, released(student_id, db)
+            )
         )
     )
     result = compute_mastery(attempts)
@@ -111,7 +121,7 @@ def enrolled_subjects(db: Session, student_id: str) -> list[Subject]:
     stmt = (
         select(Subject)
         .join(StudentSubject, StudentSubject.subject_id == Subject.id)
-        .where(StudentSubject.student_id == student_id)
+        .where(StudentSubject.student_id == student_id, Subject.status == "published")
         .order_by(Subject.sort_order)
     )
     return list(db.scalars(stmt))
@@ -120,11 +130,11 @@ def enrolled_subjects(db: Session, student_id: str) -> list[Subject]:
 def student_stats(db: Session, student: Profile) -> dict:
     subjects = enrolled_subjects(db, student.id)
     progress = topic_progress_map(db, student.id)
-    all_topics = [t for s in subjects for t in s.topics]
+    all_topics = [t for s in subjects for t in s.topics if t.status == "published"]
     overall = subject_progress(all_topics, progress)
     answered, correct = db.execute(
         select(func.count(QuestionAttempt.id), func.coalesce(func.sum(case((QuestionAttempt.is_correct, 1), else_=0)), 0)).where(
-            QuestionAttempt.student_id == student.id
+            QuestionAttempt.student_id == student.id, released(student.id, db)
         )
     ).one()
     today = gamification.today_my()

@@ -29,6 +29,8 @@ export function AssignDialog({
   const [selected, setSelected] = useState<string[]>(students.map((s) => s.id));
   const [count, setCount] = useState(8);
   const [due, setDue] = useState("");
+  const [opens, setOpens] = useState("");
+  const [release, setRelease] = useState<"immediate" | "after_due">("immediate");
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -46,6 +48,8 @@ export function AssignDialog({
         num_questions: count,
         due_date: due || null,
         exam_id: examId ?? null,
+        available_from: opens ? new Date(opens).toISOString() : null,
+        feedback_release: release,
       });
       setDone(`Assigned ${res.question_count} questions to ${res.student_count} students. It now appears on their dashboards.`);
       onDone?.();
@@ -96,6 +100,17 @@ export function AssignDialog({
               <div className="space-y-1.5">
                 <Label htmlFor="a-due">Due date</Label>
                 <Input id="a-due" type="date" value={due} onChange={(e) => setDue(e.target.value)} />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="a-opens">Opens (optional)</Label>
+                <Input id="a-opens" type="datetime-local" value={opens} onChange={(e) => setOpens(e.target.value)} />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="a-release">Show answers</Label>
+                <Select id="a-release" value={release} onChange={(e) => setRelease(e.target.value as "immediate" | "after_due")}>
+                  <option value="immediate">After each question</option>
+                  <option value="after_due" disabled={!due}>After the due date</option>
+                </Select>
               </div>
             </div>
             <div className="space-y-2">

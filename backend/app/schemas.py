@@ -1,5 +1,5 @@
 import re
-from datetime import date
+from datetime import date, datetime
 from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -283,6 +283,35 @@ class AssignmentIn(BaseModel):
     num_questions: int = Field(default=10, ge=1, le=30)
     due_date: date | None = None
     exam_id: str | None = None
+    available_from: datetime | None = None
+    feedback_release: Literal["immediate", "after_due"] = "immediate"
+
+    @model_validator(mode="after")
+    def _release_needs_due_date(self):
+        if self.feedback_release == "after_due" and self.due_date is None:
+            raise ValueError("Set a due date to hold answers until it passes")
+        return self
+
+
+class ExamPublishIn(BaseModel):
+    class_id: str
+    opens_at: datetime
+    closes_at: datetime
+    release_at: datetime
+    duration_minutes: int | None = Field(default=None, ge=5, le=300)
+
+    @model_validator(mode="after")
+    def _order(self):
+        if self.closes_at <= self.opens_at:
+            raise ValueError("The exam must close after it opens")
+        if self.release_at < self.closes_at:
+            raise ValueError("Answers can only be released after the exam closes")
+        return self
+
+
+class ExamAnswerIn(BaseModel):
+    question_id: str
+    answer: str = Field(max_length=2000)
 
 
 class PostIn(BaseModel):
@@ -296,6 +325,34 @@ class PostIn(BaseModel):
 
 class CommentIn(BaseModel):
     body: str = Field(min_length=1, max_length=5000)
+    parent_id: str | None = None
+
+
+class ReportIn(BaseModel):
+    reason: Literal["spam", "inappropriate", "bullying", "personal_info", "off_topic", "other"]
+    details: str | None = Field(default=None, max_length=500)
+
+
+class ModerationIn(BaseModel):
+    action: Literal["hide", "restore", "dismiss"]
+    reason: str | None = Field(default=None, max_length=300)
+
+
+class CalendarEventIn(BaseModel):
+    title: str = Field(min_length=2, max_length=200)
+    description: str | None = Field(default=None, max_length=2000)
+    kind: Literal["event", "holiday", "exam", "meeting", "deadline"] = "event"
+    audience: Literal["all", "teachers", "students"] = "all"
+    start_date: date
+    end_date: date | None = None
+
+    @model_validator(mode="after")
+    def _dates(self):
+        if self.end_date is None:
+            self.end_date = self.start_date
+        if self.end_date < self.start_date:
+            raise ValueError("The end date cannot be before the start date")
+        return self
 
 
 class VoteIn(BaseModel):
@@ -335,3 +392,58 @@ class TeacherSuggestIn(BaseModel):
 class FeedbackIn(BaseModel):
     interaction_id: str
     helpful: bool
+
+
+class SubjectIn(BaseModel):
+    code: str = Field(min_length=2, max_length=30)
+    name: str = Field(min_length=2, max_length=120)
+    description: str | None = None
+    icon: str = "book"
+    color: str = "violet"
+    forms: list[int] = []
+
+    @field_validator("forms")
+    @classmethod
+    def _forms(cls, v: list[int]) -> list[int]:
+        if any(f < 1 or f > 5 for f in v):
+            raise ValueError("Forms are 1 to 5")
+        return v
+
+
+class TopicIn(BaseModel):
+    subject_id: str
+    parent_id: str | None = None
+    name: str = Field(min_length=1, max_length=160)
+    form: int | None = Field(default=None, ge=1, le=5)
+    description: str | None = None
+    sort_order: int = 0
+
+
+class StatusIn(BaseModel):
+    status: Literal["draft", "published", "archived"]
+
+
+class ObjectiveIn(BaseModel):
+    text: str = Field(min_length=1, max_length=500)
+    position: int | None = None
+
+
+class QuestionMetaIn(BaseModel):
+    status: Literal["draft", "published", "archived"] | None = None
+    form: int | None = Field(default=None, ge=1, le=5)
+    attribution: str | None = Field(default=None, max_length=300)
+
+
+class MemoIn(BaseModel):
+    title: str = Field(min_length=1, max_length=200)
+    body: str = Field(min_length=1, max_length=20000)
+    audience: Literal["all", "teachers", "students"] = "all"
+    requires_acknowledgement: bool = False
+    publish_at: datetime | None = None
+    expires_at: datetime | None = None
+
+    @model_validator(mode="after")
+    def _order(self):
+        if self.publish_at and self.expires_at and self.expires_at <= self.publish_at:
+            raise ValueError("Expiry must be after the publish time")
+        return self

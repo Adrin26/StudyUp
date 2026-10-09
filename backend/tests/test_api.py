@@ -124,7 +124,7 @@ def test_community_spaces(client, student, farid):
     bad = client.post("/api/community/posts", headers=student, json={"space": "teacher", "title": "Hello", "body": "x"})
     assert bad.status_code == 403
     post = client.post("/api/community/posts", headers=student, json={"space": "student", "title": "Need help with indices", "body": "How do negative indices work?"}).json()
-    voted = client.post(f"/api/community/posts/{post['id']}/vote", headers=student, json={"value": 1}).json()
+    voted = client.post(f"/api/community/posts/{post['id']}/vote", headers=login(client, "ali@student.demo"), json={"value": 1}).json()
     assert voted["score"] == 1
     other_school = login(client, "lim@teacher.demo")
     assert client.get(f"/api/community/posts/{post['id']}", headers=other_school).status_code == 404

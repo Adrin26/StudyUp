@@ -1,26 +1,39 @@
-import { Link, NavLink, Outlet, useNavigate } from "react-router-dom";
-import { BookOpenCheck, Building2, ClipboardList, GraduationCap, Home, LayoutDashboard, LogOut, MessagesSquare, School, ScrollText, Target, Users } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Link, matchPath, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
+import { Bell, BookOpen, BookOpenCheck, Building2, CalendarDays, ClipboardList, GraduationCap, Home, LayoutDashboard, LogOut, Megaphone, Menu, MessagesSquare, School, ScrollText, ShieldAlert, Target, Users } from "lucide-react";
+import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 import type { Role } from "@/types";
 
-const NAV: Record<Role, { to: string; label: string; icon: typeof Home; end?: boolean }[]> = {
+type NavItem = { to: string; label: string; icon: typeof Home; end?: boolean };
+
+const NAV: Record<Role, NavItem[]> = {
   student: [
     { to: "/", label: "Home", icon: Home, end: true },
     { to: "/practice", label: "Practice", icon: Target },
+    { to: "/exams", label: "Exams", icon: ClipboardList },
     { to: "/community", label: "Community", icon: MessagesSquare },
+    { to: "/memos", label: "Memos", icon: Megaphone },
+    { to: "/calendar", label: "Calendar", icon: CalendarDays },
   ],
   teacher: [
     { to: "/teacher", label: "Dashboard", icon: Users, end: true },
     { to: "/teacher/exams", label: "Exams", icon: ClipboardList },
     { to: "/teacher/community", label: "Teachers", icon: MessagesSquare },
     { to: "/teacher/student-community", label: "Students", icon: BookOpenCheck },
+    { to: "/memos", label: "Memos", icon: Megaphone },
+    { to: "/calendar", label: "Calendar", icon: CalendarDays },
   ],
   admin: [
     { to: "/admin", label: "Dashboard", icon: LayoutDashboard, end: true },
     { to: "/admin/users", label: "Users", icon: Users },
     { to: "/admin/classes", label: "Classes", icon: School },
     { to: "/admin/teacher-assignments", label: "Teaching", icon: BookOpenCheck },
+    { to: "/admin/content", label: "Content", icon: BookOpen },
+    { to: "/admin/memos", label: "Memos", icon: Megaphone },
+    { to: "/admin/moderation", label: "Moderation", icon: ShieldAlert },
+    { to: "/calendar", label: "Calendar", icon: CalendarDays },
     { to: "/admin/school", label: "School", icon: Building2 },
     { to: "/admin/audit-log", label: "Audit log", icon: ScrollText },
   ],
@@ -71,7 +84,8 @@ export function AppShell() {
             </NavLink>
           ))}
         </nav>
-        <div className="flex items-center gap-3 rounded-2xl bg-muted/60 p-3">
+        <NotificationBell withLabel />
+        <div className="mt-2 flex items-center gap-3 rounded-2xl bg-muted/60 p-3">
           <Link to="/profile" className="flex min-w-0 flex-1 items-center gap-3 rounded-xl hover:opacity-80" aria-label="Profile and settings">
             <Avatar name={user.full_name} />
             <div className="min-w-0 flex-1">
@@ -88,6 +102,7 @@ export function AppShell() {
       <header className="sticky top-0 z-30 flex items-center justify-between border-b bg-card/80 px-4 py-3 backdrop-blur lg:hidden">
         <Brand school={user.school} logoUrl={user.school_logo_url} />
         <div className="flex items-center gap-1">
+          <NotificationBell />
           <Link to="/profile" aria-label="Profile and settings">
             <Avatar name={user.full_name} small />
           </Link>
@@ -101,28 +116,113 @@ export function AppShell() {
         <Outlet />
       </main>
 
-      <nav className="fixed inset-x-0 bottom-0 z-30 flex justify-around border-t bg-card/95 px-2 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] backdrop-blur lg:hidden" aria-label="Main">
-        {nav.map((item) => (
-          <NavLink
-            key={item.to}
-            to={item.to}
-            end={item.end}
-            className={({ isActive }) =>
-              cn("flex min-w-0 flex-1 flex-col items-center gap-0.5 rounded-xl px-1 py-1.5 text-[11px] font-semibold text-muted-foreground", isActive && "text-primary")
-            }
-          >
+      <MobileNav nav={nav} />
+    </div>
+  );
+}
+
+const MOBILE_SLOTS = 4;
+
+function MobileNav({ nav }: { nav: NavItem[] }) {
+  const location = useLocation();
+  const [open, setOpen] = useState(false);
+  const primary = nav.length > MOBILE_SLOTS + 1 ? nav.slice(0, MOBILE_SLOTS) : nav;
+  const overflow = nav.slice(primary.length);
+  const overflowActive = overflow.some((item) => matchPath({ path: item.to, end: !!item.end }, location.pathname));
+
+  useEffect(() => setOpen(false), [location.pathname]);
+
+  const tab = "flex min-w-0 flex-1 flex-col items-center gap-0.5 rounded-xl px-1 py-1.5 text-[11px] font-semibold text-muted-foreground";
+  const pill = (active: boolean) => cn("rounded-full px-3 py-1 transition-colors", active && "bg-primary/10");
+
+  return (
+    <>
+      {open && (
+        <>
+          <button className="fixed inset-0 z-30 bg-black/20 lg:hidden" aria-label="Close menu" onClick={() => setOpen(false)} />
+          <div id="more-nav" className="fixed inset-x-3 bottom-[calc(4.5rem+env(safe-area-inset-bottom))] z-40 grid grid-cols-3 gap-1 rounded-2xl border bg-card p-2 shadow-xl lg:hidden">
+            {overflow.map((item) => (
+              <NavLink
+                key={item.to}
+                to={item.to}
+                end={item.end}
+                className={({ isActive }) => cn("flex flex-col items-center gap-1 rounded-xl px-2 py-3 text-xs font-semibold text-muted-foreground hover:bg-muted", isActive && "bg-primary/10 text-primary")}
+              >
+                <item.icon className="size-5" />
+                {item.label}
+              </NavLink>
+            ))}
+          </div>
+        </>
+      )}
+      <nav className="fixed inset-x-0 bottom-0 z-40 flex justify-around border-t bg-card/95 px-2 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] backdrop-blur lg:hidden" aria-label="Main">
+        {primary.map((item) => (
+          <NavLink key={item.to} to={item.to} end={item.end} className={({ isActive }) => cn(tab, isActive && "text-primary")}>
             {({ isActive }) => (
               <>
-                <span className={cn("rounded-full px-3 py-1 transition-colors", isActive && "bg-primary/10")}>
+                <span className={pill(isActive)}>
                   <item.icon className="size-5" />
                 </span>
-                {item.label}
+                <span className="max-w-full truncate">{item.label}</span>
               </>
             )}
           </NavLink>
         ))}
+        {overflow.length > 0 && (
+          <button type="button" className={cn(tab, (open || overflowActive) && "text-primary")} aria-expanded={open} aria-controls="more-nav" onClick={() => setOpen((v) => !v)}>
+            <span className={pill(open || overflowActive)}>
+              <Menu className="size-5" />
+            </span>
+            More
+          </button>
+        )}
       </nav>
-    </div>
+    </>
+  );
+}
+
+function NotificationBell({ withLabel }: { withLabel?: boolean }) {
+  const location = useLocation();
+  const [count, setCount] = useState(0);
+
+  useEffect(() => {
+    let alive = true;
+    const load = () =>
+      api
+        .get<{ count: number }>("/api/notifications/unread-count")
+        .then((r) => alive && setCount(r.count))
+        .catch(() => undefined);
+    load();
+    const timer = window.setInterval(load, 60_000);
+    window.addEventListener("notifications-changed", load);
+    return () => {
+      alive = false;
+      window.clearInterval(timer);
+      window.removeEventListener("notifications-changed", load);
+    };
+  }, [location.pathname]);
+
+  const label = count ? `Notifications (${count} unread)` : "Notifications";
+  return (
+    <NavLink
+      to="/notifications"
+      aria-label={label}
+      className={({ isActive }) =>
+        cn(
+          "relative flex items-center gap-3 rounded-xl text-sm font-semibold text-muted-foreground hover:bg-accent hover:text-foreground",
+          withLabel ? "px-3 py-2.5" : "p-2",
+          isActive && "text-primary",
+        )
+      }
+    >
+      <span className="relative">
+        <Bell className="size-5" />
+        {count > 0 && (
+          <span className="absolute -top-1.5 -right-1.5 min-w-4 rounded-full bg-orange-500 px-1 text-center text-[10px] leading-4 font-bold text-white">{count > 99 ? "99+" : count}</span>
+        )}
+      </span>
+      {withLabel && "Notifications"}
+    </NavLink>
   );
 }
 

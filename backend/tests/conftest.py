@@ -3,8 +3,12 @@ import tempfile
 
 import pytest
 
-_db_file = os.path.join(tempfile.mkdtemp(), "test.db")
+_tmp = tempfile.mkdtemp()
+_db_file = os.path.join(_tmp, "test.db")
 os.environ["DATABASE_URL"] = f"sqlite:///{_db_file}"
+os.environ["UPLOAD_DIR"] = os.path.join(_tmp, "uploads")
+os.environ["PRIVATE_UPLOAD_DIR"] = os.path.join(_tmp, "private_uploads")
+os.environ["SMTP_HOST"] = ""
 os.environ["AUTH_MODE"] = "local"
 os.environ["ENVIRONMENT"] = "test"
 os.environ["AI_FEATURES_ENABLED"] = "true"

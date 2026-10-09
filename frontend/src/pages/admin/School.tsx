@@ -114,7 +114,7 @@ function ProfileTab() {
         <Field id="s-email" label="Office email" error={formState.errors.email?.message}>
           <Input id="s-email" type="email" {...register("email")} />
         </Field>
-        <Field id="s-logo" label="Logo URL" error={formState.errors.logo_url?.message} hint="An https:// link to a square image. Uploading files arrives with content storage in Phase 3.">
+        <Field id="s-logo" label="Logo URL" error={formState.errors.logo_url?.message} hint="An https:// link to a square image.">
           <div className="flex items-center gap-3">
             <Input id="s-logo" placeholder="https://" {...register("logo_url")} />
             {logo?.startsWith("https://") && <img src={logo} alt="" className="size-10 shrink-0 rounded-lg border object-contain" />}

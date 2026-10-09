@@ -29,6 +29,18 @@ class Settings(BaseSettings):
     login_window_minutes: int = 15
     # Used to build links in emails (password reset).
     frontend_url: str = "http://localhost:5173"
+    # Public files (question images), served at /uploads.
+    upload_dir: str = "uploads"
+    # Files that need a permission check (memo attachments); never served directly.
+    private_upload_dir: str = "private_uploads"
+
+    # Outgoing email. Without SMTP_HOST, development prints emails to the API log and production sends nothing.
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_username: str = ""
+    smtp_password: str = ""
+    smtp_from: str = ""
+    smtp_starttls: bool = True
 
     supabase_url: str = ""
     supabase_jwt_secret: str = ""
@@ -55,6 +67,12 @@ class Settings(BaseSettings):
                 raise ValueError("APP_SECRET must be a random string of at least 32 characters in production")
             if self.database_url.startswith("sqlite"):
                 raise ValueError("DATABASE_URL must point to PostgreSQL in production")
+            if "*" in self.cors_origin_list:
+                raise ValueError("CORS_ORIGINS must list the frontend URL(s) in production, not '*'")
+            if any(host in self.frontend_url for host in ("localhost", "127.0.0.1")):
+                raise ValueError("FRONTEND_URL must be the public frontend address in production (it is used in emailed links)")
+            if self.smtp_host and not self.smtp_from:
+                raise ValueError("SMTP_FROM is required when SMTP_HOST is set")
         return self
 
     @property

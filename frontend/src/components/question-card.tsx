@@ -5,7 +5,7 @@ import { Spinner } from "@/components/states";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { api } from "@/lib/api";
+import { api, assetUrl } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 import type { AIResponse, AnswerFeedback, QuestionPublic } from "@/types";
@@ -15,12 +15,21 @@ const DIFF_BADGE = { easy: "success", medium: "warning", hard: "danger" } as con
 export function QuestionMeta({ q }: { q: QuestionPublic }) {
   return (
     <div className="flex flex-wrap items-center gap-1.5 text-xs">
-      {q.year && (
-        <Badge variant="secondary">
-          SPM {q.subject_name ?? ""} {q.year}
+      {q.source === "spm_past_year" ? (
+        <>
+          {q.year && (
+            <Badge variant="secondary">
+              SPM {q.subject_name ?? ""} {q.year}
+            </Badge>
+          )}
+          {q.paper && <Badge variant="outline">{q.paper}{q.question_number ? ` · Q${q.question_number}` : ""}</Badge>}
+        </>
+      ) : (
+        <Badge variant="secondary" title="Written for practice in the style of SPM; not taken from a real exam paper.">
+          {q.source === "teacher" ? "Teacher question" : q.source === "ai_generated" ? "AI-generated" : "Sample question"}
+          {q.year ? ` · ${q.year} style` : ""}
         </Badge>
       )}
-      {q.paper && <Badge variant="outline">{q.paper}{q.question_number ? ` · Q${q.question_number}` : ""}</Badge>}
       {q.topic_name && <Badge variant="muted">{q.topic_name}</Badge>}
       <Badge variant={DIFF_BADGE[q.difficulty]} className="capitalize">
         {q.difficulty}
@@ -72,8 +81,9 @@ export function QuestionCard({
     }
   };
 
+  const held = !!feedback?.feedback_hidden;
   const chosen = feedback ? feedback.your_answer.toUpperCase() : answer;
-  const correctKey = feedback?.correct_answer.toUpperCase();
+  const correctKey = held ? undefined : feedback?.correct_answer.toUpperCase();
 
   return (
     <div className="space-y-5">
@@ -81,14 +91,14 @@ export function QuestionCard({
         {label && <p className="text-sm font-bold text-primary">{label}</p>}
         {showMeta && <QuestionMeta q={question} />}
         <p className="whitespace-pre-line text-xl leading-relaxed font-bold">{question.question_text}</p>
-        {question.image_url && <img src={question.image_url} alt="Question diagram" className="max-h-72 rounded-xl border" />}
+        {question.image_url && <img src={assetUrl(question.image_url)} alt="Question diagram" className="max-h-72 rounded-xl border" />}
       </div>
 
       {question.question_type === "mcq" && question.options ? (
         <div className="grid gap-2.5" role="radiogroup" aria-label="Answer options">
           {question.options.map((o) => {
             const isChosen = chosen === o.key;
-            const state = !feedback ? (isChosen ? "selected" : "idle") : o.key === correctKey ? "correct" : isChosen ? "wrong" : "dim";
+            const state = !feedback || held ? (isChosen ? "selected" : held ? "dim" : "idle") : o.key === correctKey ? "correct" : isChosen ? "wrong" : "dim";
             return (
               <button
                 key={o.key}
@@ -141,6 +151,8 @@ export function QuestionCard({
           </Button>
           {allowHints && aiEnabled && <HintBox questionId={question.id} />}
         </div>
+      ) : held ? (
+        <p className="rounded-2xl bg-muted p-4 text-sm font-semibold">Answer saved. Your teacher releases the answers after the due date.</p>
       ) : (
         <FeedbackPanel feedback={feedback} questionId={question.id} />
       )}

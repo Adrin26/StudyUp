@@ -15,9 +15,13 @@ import type { QuizSession, TopicSummary } from "@/types";
 interface TopicDetail {
   topic: TopicSummary & { question_count: number };
   subject: { id: string; name: string; icon: string; color: string };
+  objectives: { id: string; text: string }[];
+  states: { learn: string; quiz: string };
   lesson: { id: string; title: string; summary: string; estimated_minutes: number; slide_count: number; current_slide: number; completed: boolean } | null;
   quiz_history: { id: string; completed_at: string; percentage: number | null }[];
 }
+
+const STATE_LABEL: Record<string, string> = { not_started: "Not started", in_progress: "In progress", completed: "Completed", unavailable: "No lesson yet" };
 
 export default function TopicPage() {
   const { topicId } = useParams();
@@ -28,7 +32,7 @@ export default function TopicPage() {
 
   if (loading && !data) return <PageLoader rows={2} />;
   if (error || !data) return <ErrorState message={error ?? "Not found"} onRetry={reload} />;
-  const { topic, subject, lesson, quiz_history } = data;
+  const { topic, subject, lesson, quiz_history, objectives, states } = data;
   const style = LEVEL_STYLE[topic.level.key];
 
   const startQuiz = async () => {
@@ -68,6 +72,15 @@ export default function TopicPage() {
       </Card>
 
       <div className="text-sm font-semibold text-muted-foreground">Learn → 10-question knowledge check → review → practice again</div>
+      {objectives.length > 0 && (
+        <Card>
+          <CardTitle>Learning objectives</CardTitle>
+          <ul className="list-disc space-y-1 pl-5 text-sm">
+            {objectives.map((o) => <li key={o.id}>{o.text}</li>)}
+          </ul>
+        </Card>
+      )}
+      <p className="text-sm text-muted-foreground">Lesson: {STATE_LABEL[states.learn] ?? states.learn} · Quiz: {STATE_LABEL[states.quiz] ?? states.quiz}</p>
 
       <div className="grid gap-4 md:grid-cols-2">
         <Card>

@@ -3,7 +3,7 @@ from datetime import date, datetime, timedelta, timezone
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from ..models import Badge, Profile, QuestionAttempt, QuestionSet, StudentBadge, StudentTopicProgress, Subject
+from ..models import Badge, Profile, QuestionAttempt, QuestionSet, StudentBadge, StudentTopicProgress, Subject, XPEvent
 
 MALAYSIA_TZ = timezone(timedelta(hours=8))
 XP_PER_LEVEL = 500
@@ -22,6 +22,29 @@ BADGES = [
     ("algebra_explorer", "Algebra Explorer", "Reach 60% mastery in 3 Mathematics topics.", "compass", 150),
     ("century", "Century", "Answer 100 questions.", "target", 100),
 ]
+
+
+XP_LESSON_COMPLETE = 20
+
+XP_RULES = [
+    {"reason": "answer", "label": "Correct answer", "xp": "10 easy · 15 medium · 20 hard", "note": "Once per question in each quiz, practice or assignment set."},
+    {"reason": "answer", "label": "Incorrect answer", "xp": f"{XP_EFFORT}", "note": "A small reward for effort. Assignments that hold answers until the due date give no answer XP."},
+    {"reason": "quiz_complete", "label": "Finish a topic quiz", "xp": f"{XP_QUIZ_COMPLETE} (+{XP_PERFECT_QUIZ} for 100%)", "note": "Submitting a quiz again gives nothing extra."},
+    {"reason": "lesson_complete", "label": "Finish a lesson", "xp": f"{XP_LESSON_COMPLETE}", "note": "The first time only."},
+    {"reason": "badge", "label": "Earn a badge", "xp": "50–150", "note": "Each badge once."},
+]
+XP_NOT_AWARDED = ["Exam answers", "Community posts, comments or votes", "Opening pages or logging in"]
+
+
+def award_xp(db: Session, student: Profile, amount: int, reason: str, ref_id: str | None = None, at: datetime | None = None) -> int:
+    """The only place XP changes: updates the total and records why."""
+    if amount:
+        student.xp += amount
+        event = XPEvent(student_id=student.id, amount=amount, reason=reason, ref_id=ref_id)
+        if at is not None:
+            event.created_at = at
+        db.add(event)
+    return amount
 
 
 def today_my() -> date:
@@ -94,6 +117,6 @@ def award_badges(db: Session, student: Profile, quiz_percentage: float | None = 
             badge = db.scalar(select(Badge).where(Badge.code == code))
             if badge:
                 db.add(StudentBadge(student_id=student.id, badge_id=badge.id))
-                student.xp += badge.xp_reward
+                award_xp(db, student, badge.xp_reward, "badge", badge.id)
                 new.append(badge)
     return new

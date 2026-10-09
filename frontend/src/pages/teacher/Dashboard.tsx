@@ -393,7 +393,7 @@ function ClassView({ classId }: { classId: string }) {
 }
 
 function RecentAssignments() {
-  const { data } = useApi<{ id: string; title: string; subject: string; topic: string | null; assigned: number; completed: number; average_score: number | null; due_date: string | null }[]>("/api/teachers/assignments");
+  const { data } = useApi<{ id: string; title: string; subject: string; topic: string | null; assigned: number; completed: number; average_score: number | null; due_date: string | null; available_from: string | null; feedback_release: "immediate" | "after_due" }[]>("/api/teachers/assignments");
   if (!data || data.length === 0) return null;
   return (
     <Card>
@@ -408,7 +408,9 @@ function RecentAssignments() {
               <p className="text-xs text-muted-foreground">
                 {a.subject}
                 {a.topic && ` · ${a.topic}`}
+                {a.available_from && new Date(a.available_from) > new Date() && ` · opens ${new Date(a.available_from).toLocaleDateString("en-MY", { day: "numeric", month: "short" })}`}
                 {a.due_date && ` · due ${new Date(a.due_date).toLocaleDateString("en-MY", { day: "numeric", month: "short" })}`}
+                {a.feedback_release === "after_due" && " · answers after due date"}
               </p>
             </div>
             <div className="text-right text-sm">

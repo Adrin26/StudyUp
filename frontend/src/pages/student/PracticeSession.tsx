@@ -11,13 +11,11 @@ import { useApi } from "@/lib/useApi";
 import { cn } from "@/lib/utils";
 import type { AnswerFeedback, PracticeSet } from "@/types";
 
-interface Summary {
-  score: number;
-  answered: number;
-  total: number;
-  percentage: number;
-  by_topic: { topic: string; correct: number; total: number }[];
-}
+type Summary =
+  | { feedback_hidden?: false; score: number; answered: number; total: number; percentage: number; by_topic: { topic: string; correct: number; total: number }[] }
+  | { feedback_hidden: true; answered: number; total: number };
+
+const formatDate = (d: string) => new Date(d).toLocaleDateString("en-MY", { day: "numeric", month: "short", year: "numeric" });
 
 export default function PracticeSessionPage() {
   const { setId } = useParams();
@@ -47,6 +45,24 @@ export default function PracticeSessionPage() {
       setFinishing(false);
     }
   };
+
+  if (summary?.feedback_hidden) {
+    return (
+      <div className="mx-auto max-w-xl space-y-4">
+        <Card className="items-center gap-3 text-center">
+          <PartyPopper className="size-12 text-violet-500" />
+          <h1 className="text-2xl font-extrabold">Submitted!</h1>
+          <p className="text-muted-foreground">
+            You answered {summary.answered} of {summary.total} questions. Your score and the answers appear
+            {set.assignment?.due_date ? ` after ${formatDate(set.assignment.due_date)}` : " after the due date"}.
+          </p>
+          <Button asChild variant="outline">
+            <Link to="/">Back to dashboard</Link>
+          </Button>
+        </Card>
+      </div>
+    );
+  }
 
   if (summary) {
     return (
@@ -94,6 +110,12 @@ export default function PracticeSessionPage() {
       <div className="space-y-2">
         <h1 className="text-xl font-extrabold">{set.assignment?.title ?? set.title}</h1>
         {set.assignment?.instructions && <p className="text-sm text-muted-foreground">{set.assignment.instructions}</p>}
+        {set.assignment?.due_date && (
+          <p className="text-xs font-semibold text-muted-foreground">
+            Due {formatDate(set.assignment.due_date)}
+            {set.assignment.past_due ? " · Closed for new answers" : !set.assignment.answers_visible && " · Answers are released after the due date"}
+          </p>
+        )}
         <div className="flex items-center gap-3">
           <Progress value={(answered / total) * 100} />
           <span className="shrink-0 text-xs font-semibold text-muted-foreground">
@@ -108,7 +130,13 @@ export default function PracticeSessionPage() {
                 key={qq.id}
                 onClick={() => setIndex(i)}
                 aria-label={`Question ${i + 1}`}
-                className={cn("size-7 rounded-lg text-xs font-bold", i === index && "ring-2 ring-primary ring-offset-1", !fb && "bg-muted", fb?.is_correct && "bg-emerald-500 text-white", fb && !fb.is_correct && "bg-orange-400 text-white")}
+                className={cn(
+                  "size-7 rounded-lg text-xs font-bold",
+                  i === index && "ring-2 ring-primary ring-offset-1",
+                  !fb && "bg-muted",
+                  fb?.feedback_hidden && "bg-primary/70 text-white",
+                  fb && !fb.feedback_hidden && (fb.is_correct ? "bg-emerald-500 text-white" : "bg-orange-400 text-white"),
+                )}
               >
                 {i + 1}
               </button>

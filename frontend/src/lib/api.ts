@@ -37,13 +37,24 @@ function toError(status: number, statusText: string, data: unknown): ApiError {
   return new ApiError(status, statusText || "Request failed");
 }
 
-async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
+/** Files the API serves (e.g. `/uploads/...`) live on the API's origin, which differs from the app's in production. */
+export function assetUrl(path: string): string {
+  return path.startsWith("/") ? `${BASE}${path}` : path;
+}
+
+async function send(method: string, path: string, body?: unknown): Promise<Response> {
+  const headers: Record<string, string> = {};
   const token = tokenStore.get();
   if (token) headers.Authorization = `Bearer ${token}`;
+  let payload: BodyInit | undefined;
+  if (body instanceof FormData) payload = body;
+  else if (body !== undefined) {
+    headers["Content-Type"] = "application/json";
+    payload = JSON.stringify(body);
+  }
   let res: Response;
   try {
-    res = await fetch(`${BASE}${path}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
+    res = await fetch(`${BASE}${path}`, { method, headers, body: payload });
   } catch {
     throw new ApiError(0, "Cannot reach the server. Check your connection and try again.");
   }
@@ -59,6 +70,11 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
     if (sessionEnded && sessionEndedHandler) sessionEndedHandler(error);
     throw error;
   }
+  return res;
+}
+
+async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
+  const res = await send(method, path, body);
   return res.status === 204 ? (undefined as T) : ((await res.json()) as T);
 }
 
@@ -68,6 +84,21 @@ export const api = {
   put: <T>(path: string, body?: unknown) => request<T>("PUT", path, body ?? {}),
   patch: <T>(path: string, body?: unknown) => request<T>("PATCH", path, body ?? {}),
   del: <T>(path: string) => request<T>("DELETE", path),
+  upload: <T>(path: string, file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    return request<T>("POST", path, form);
+  },
+  /** Downloads a file that needs the signed-in user's token, then saves it under `filename`. */
+  download: async (path: string, filename: string) => {
+    const blob = await (await send("GET", path)).blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
+  },
 };
 
 export function qs(params: Record<string, string | number | undefined | null>): string {

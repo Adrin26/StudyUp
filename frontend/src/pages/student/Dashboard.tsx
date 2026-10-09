@@ -215,9 +215,15 @@ function Assignments({ items }: { items: Dashboard["assignments"] }) {
                 {a.due_date && ` · Due ${new Date(a.due_date).toLocaleDateString("en-MY", { day: "numeric", month: "short" })}`}
               </p>
             </div>
-            <Button asChild size="sm" variant="gradient">
-              <Link to={`/practice/set/${a.set_id}`}>Start</Link>
-            </Button>
+            {a.open ? (
+              <Button asChild size="sm" variant="gradient">
+                <Link to={`/practice/set/${a.set_id}`}>Start</Link>
+              </Button>
+            ) : (
+              <span className="shrink-0 text-xs font-semibold text-muted-foreground">
+                Opens {a.available_from && new Date(a.available_from).toLocaleString("en-MY", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}
+              </span>
+            )}
           </div>
         ))}
       </div>

@@ -7,6 +7,7 @@ from ..models import AIInteraction, Lesson, LessonSlide, Profile, Question, Ques
 from ..schemas import ExplainIn, FeedbackIn, HintIn, LessonHelpIn, SimilarCheckIn, SimilarQuestionIn, TeacherSuggestIn
 from ..permissions import require_ai_enabled, require_student, require_teacher
 from ..security import get_current_user
+from ..services import assignment_rules
 from ..services.access import ensure_can_view_student, ensure_teaches_subject, visible_student_ids
 from ..services.grading import display_answer, display_given, is_correct
 from ..services.openai_service import (
@@ -119,6 +120,8 @@ def _attempt_for(db: Session, user: Profile, attempt_id: str) -> QuestionAttempt
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Attempt not found")
     if user.role == "student" and attempt.student_id != user.id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Attempt not found")
+    if user.role == "student" and attempt.set_id in assignment_rules.held_set_ids(db, user.id):
+        raise HTTPException(status.HTTP_409_CONFLICT, "Answers for this assignment are released after the due date")
     if user.role != "student":
         ensure_can_view_student(db, user, attempt.student_id, attempt.subject_id)
     return attempt
@@ -216,7 +219,7 @@ def similar_question(body: SimilarQuestionIn, user: Profile = Depends(require_st
             explanation=data["explanation"],
             skill=q.skill,
             source="ai_generated",
-            status="pending_review",
+            status="draft",
             created_by=user.id,
         )
         db.add(generated)
@@ -229,7 +232,7 @@ def similar_question(body: SimilarQuestionIn, user: Profile = Depends(require_st
 def check_similar(body: SimilarCheckIn, user: Profile = Depends(require_student), db: Session = Depends(get_db)):
     q = db.get(Question, body.question_id)
     allowed = q is not None and (q.status == "published" or (q.source == "ai_generated" and q.created_by == user.id))
-    if not allowed:
+    if not allowed or q.id in assignment_rules.held_question_ids(db, user):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Question not found")
     return {"is_correct": is_correct(q, body.answer), "correct_display": display_answer(q), "explanation": q.explanation}
 

@@ -2,6 +2,7 @@
 
     python -m app.cli create-admin --email admin@school.edu.my --name "Puan Admin" [--username admin] [--school-id ID]
     python -m app.cli grant-admin --email someone@school.edu.my      (Supabase: promote an existing profile)
+    python -m app.cli load-curriculum                                 (starter subjects, lessons, sample questions)
 
 There is deliberately no HTTP endpoint that can create an admin account.
 """
@@ -88,6 +89,23 @@ def grant_admin(args) -> None:
         print(f"{email} is now an admin")
 
 
+def load_curriculum(_args) -> None:
+    import random
+
+    from .models import Subject
+    from .seed.run import _curriculum
+    from .services import gamification
+
+    with SessionLocal() as db:
+        if db.scalar(select(func.count()).select_from(Subject)):
+            _fail("subjects already exist; load-curriculum only fills an empty question bank")
+        gamification.ensure_badges(db)
+        subjects, topics = _curriculum(db, random.Random(2026))
+        audit.record(db, "content.curriculum_loaded", "subject", None, details={"subjects": len(subjects), "topics": len(topics)})
+        db.commit()
+        print(f"Loaded {len(subjects)} subjects and {len(topics)} topics with lessons and sample questions (labelled 'sample', not past papers).")
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="python -m app.cli", description="MINDA administrative commands")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -103,6 +121,9 @@ def main(argv: list[str] | None = None) -> None:
     g = sub.add_parser("grant-admin", help="promote an existing profile to admin")
     g.add_argument("--email", required=True)
     g.set_defaults(func=grant_admin)
+
+    c = sub.add_parser("load-curriculum", help="load the starter subjects, lessons and sample questions into an empty database (no accounts)")
+    c.set_defaults(func=load_curriculum)
 
     args = parser.parse_args(argv)
     args.func(args)
