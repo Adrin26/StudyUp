@@ -1,7 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Bar, BarChart, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { AlertTriangle, Bot, BookOpenCheck, ClipboardList, Lightbulb, School, Send, Target, TrendingUp, Users } from "lucide-react";
+import { AlertTriangle, Bot, BookOpenCheck, ClipboardList, Lightbulb, School, Search, Send, Target, TrendingUp, Users } from "lucide-react";
 import { AIFeedback } from "@/components/ai-feedback";
 import { AssignDialog } from "@/components/assign-dialog";
 import { LEVEL_STYLE, MasteryBadge, MasteryCell, levelFor } from "@/components/mastery";
@@ -187,10 +187,120 @@ function TeachingIdeas({ alert }: { alert: Alert }) {
   );
 }
 
-function SubjectView({ subject }: { subject: TeacherContext["subjects"][number] }) {
+function StudentMasteryTable({
+  students,
+  topics,
+  subjectId,
+  showClassBadge = false,
+}: {
+  students: SubjectDashboard["students"];
+  topics: SubjectDashboard["topics"];
+  subjectId: string;
+  showClassBadge?: boolean;
+}) {
   const navigate = useNavigate();
+
+  if (students.length === 0) {
+    return <div className="p-6 text-center text-sm text-muted-foreground">No students found.</div>;
+  }
+
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-sm">
+        <thead className="bg-muted/50 text-left text-xs font-bold uppercase text-muted-foreground">
+          <tr>
+            <th className="sticky left-0 bg-muted/50 px-4 py-3">Student</th>
+            {showClassBadge && <th className="px-3 py-3">Class</th>}
+            <th className="px-3 py-3">Overall</th>
+            {topics.map((t) => (
+              <th key={t.id} className="whitespace-nowrap px-3 py-3">
+                {t.name}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {students.map((s) => (
+            <tr
+              key={s.id}
+              onClick={() => navigate(`/teacher/students/${s.id}?subject_id=${subjectId}`)}
+              className="cursor-pointer border-t transition-colors hover:bg-accent/40"
+            >
+              <td className="sticky left-0 bg-card px-4 py-2.5 font-semibold whitespace-nowrap">
+                {s.name}
+              </td>
+              {showClassBadge && (
+                <td className="px-3 py-2.5 whitespace-nowrap">
+                  {s.class_name ? (
+                    <Badge variant="outline" className="text-xs font-medium">
+                      {s.class_name}
+                    </Badge>
+                  ) : (
+                    <span className="text-xs text-muted-foreground">—</span>
+                  )}
+                </td>
+              )}
+              <td className="px-3 py-2.5">
+                <MasteryCell value={s.overall} />
+              </td>
+              {topics.map((t) => (
+                <td key={t.id} className="px-3 py-2.5">
+                  <MasteryCell value={s.topics[t.id]} />
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function SubjectView({ subject }: { subject: TeacherContext["subjects"][number] }) {
   const [classId, setClassId] = useState("");
+  const [studentSearch, setStudentSearch] = useState("");
+  const [viewMode, setViewMode] = useState<"by_class" | "all">("by_class");
   const { data, error, loading, reload } = useApi<SubjectDashboard>(`/api/teachers/subjects/${subject.id}/progress${classId ? `?class_id=${classId}` : ""}`);
+
+  const filteredStudents = useMemo(() => {
+    if (!data?.students) return [];
+    if (!studentSearch.trim()) return data.students;
+    const q = studentSearch.toLowerCase();
+    return data.students.filter(
+      (s) => s.name.toLowerCase().includes(q) || (s.class_name && s.class_name.toLowerCase().includes(q))
+    );
+  }, [data?.students, studentSearch]);
+
+  const classGroups = useMemo(() => {
+    if (!filteredStudents.length) return [];
+    const map = new Map<string, SubjectDashboard["students"]>();
+    const knownClassOrder = subject.classes.map((c) => c.name);
+
+    for (const student of filteredStudents) {
+      const cname = student.class_name || "Unassigned";
+      if (!map.has(cname)) {
+        map.set(cname, []);
+      }
+      map.get(cname)!.push(student);
+    }
+
+    const sortedClassNames = Array.from(map.keys()).sort((a, b) => {
+      const idxA = knownClassOrder.indexOf(a);
+      const idxB = knownClassOrder.indexOf(b);
+      if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+      if (idxA !== -1) return -1;
+      if (idxB !== -1) return 1;
+      return a.localeCompare(b);
+    });
+
+    return sortedClassNames.map((cname) => {
+      const studs = map.get(cname)!;
+      const validAvgs = studs.map((s) => s.overall).filter((v): v is number => v != null);
+      const avg = validAvgs.length ? Math.round(validAvgs.reduce((a, b) => a + b, 0) / validAvgs.length) : null;
+      const cid = studs[0]?.class_id || cname;
+      return { classId: cid, className: cname, students: studs, average: avg };
+    });
+  }, [filteredStudents, subject.classes]);
 
   if (loading && !data) return <PageLoader rows={4} />;
   if (error || !data) return <ErrorState message={error ?? "Could not load"} onRetry={reload} />;
@@ -265,42 +375,109 @@ function SubjectView({ subject }: { subject: TeacherContext["subjects"][number] 
         </Card>
       </div>
 
-      <Card className="gap-0 overflow-hidden p-0">
-        <div className="border-b p-4">
-          <CardTitle className="text-base">Students</CardTitle>
-          <CardDescription>Click a student to see their weak topics and recent attempts.</CardDescription>
+      <div className="space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h3 className="flex items-center gap-2 text-lg font-extrabold">
+              <Users className="size-5 text-primary" /> Students by Class
+            </h3>
+            <p className="text-xs text-muted-foreground">
+              Students from the classes you teach for {data.subject.name}, categorized by their class.
+            </p>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="relative">
+              <Search className="absolute left-2.5 top-2.5 size-3.5 text-muted-foreground" />
+              <input
+                type="text"
+                placeholder="Search students..."
+                value={studentSearch}
+                onChange={(e) => setStudentSearch(e.target.value)}
+                className="h-8.5 rounded-xl border bg-background pl-8 pr-3 text-xs focus:outline-none focus:ring-1 focus:ring-primary"
+              />
+            </div>
+
+            {subject.classes.length > 1 && !classId && (
+              <div className="inline-flex rounded-xl border bg-muted/40 p-0.5 text-xs font-semibold">
+                <button
+                  type="button"
+                  onClick={() => setViewMode("by_class")}
+                  className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1 transition-all ${
+                    viewMode === "by_class" ? "bg-card text-foreground shadow-sm font-bold" : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  <School className="size-3.5" /> Group by Class
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setViewMode("all")}
+                  className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1 transition-all ${
+                    viewMode === "all" ? "bg-card text-foreground shadow-sm font-bold" : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  <Users className="size-3.5" /> All Students
+                </button>
+              </div>
+            )}
+          </div>
         </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="bg-muted/50 text-left text-xs font-bold text-muted-foreground uppercase">
-              <tr>
-                <th className="sticky left-0 bg-muted/50 px-4 py-3">Student</th>
-                <th className="px-3 py-3">Overall</th>
-                {data.topics.map((t) => (
-                  <th key={t.id} className="px-3 py-3 whitespace-nowrap">
-                    {t.name}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {data.students.map((s) => (
-                <tr key={s.id} onClick={() => navigate(`/teacher/students/${s.id}?subject_id=${data.subject.id}`)} className="cursor-pointer border-t hover:bg-accent/40">
-                  <td className="sticky left-0 bg-card px-4 py-2.5 font-semibold whitespace-nowrap">{s.name}</td>
-                  <td className="px-3 py-2.5">
-                    <MasteryCell value={s.overall} />
-                  </td>
-                  {data.topics.map((t) => (
-                    <td key={t.id} className="px-3 py-2.5">
-                      <MasteryCell value={s.topics[t.id]} />
-                    </td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </Card>
+
+        {viewMode === "by_class" && subject.classes.length > 1 && !classId ? (
+          <div className="space-y-4">
+            {classGroups.map((group) => (
+              <Card key={group.className} className="gap-0 overflow-hidden p-0">
+                <div className="flex flex-wrap items-center justify-between border-b bg-muted/30 px-4 py-3">
+                  <div className="flex items-center gap-2.5">
+                    <div className="flex size-8 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                      <School className="size-4" />
+                    </div>
+                    <div>
+                      <h4 className="text-sm font-bold">Class {group.className}</h4>
+                      <p className="text-xs text-muted-foreground">
+                        {group.students.length} student{group.students.length === 1 ? "" : "s"} enrolled
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {group.average != null && (
+                      <Badge variant="secondary" className="font-semibold text-xs">
+                        Class Avg: {group.average}%
+                      </Badge>
+                    )}
+                  </div>
+                </div>
+                <StudentMasteryTable
+                  students={group.students}
+                  topics={data.topics}
+                  subjectId={data.subject.id}
+                  showClassBadge={false}
+                />
+              </Card>
+            ))}
+            {classGroups.length === 0 && (
+              <Card className="p-8 text-center text-sm text-muted-foreground">
+                No students found matching "{studentSearch}".
+              </Card>
+            )}
+          </div>
+        ) : (
+          <Card className="gap-0 overflow-hidden p-0">
+            <div className="border-b p-4">
+              <CardTitle className="text-base">
+                {classId ? `Class ${subject.classes.find((c) => c.id === classId)?.name ?? ""}` : "All Students"}
+              </CardTitle>
+              <CardDescription>Click a student to see their weak topics and recent attempts.</CardDescription>
+            </div>
+            <StudentMasteryTable
+              students={filteredStudents}
+              topics={data.topics}
+              subjectId={data.subject.id}
+              showClassBadge={!classId && subject.classes.length > 1}
+            />
+          </Card>
+        )}
+      </div>
     </div>
   );
 }

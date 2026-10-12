@@ -447,7 +447,17 @@ export interface SubjectDashboard {
   topics_needing_attention: number;
   questions_attempted: number;
   topics: { id: string; name: string; average: number | null; students_attempted: number; struggling_count: number; struggling_student_ids: string[]; needs_attention: boolean }[];
-  students: { id: string; name: string; overall: number | null; level: Level; topics: Record<string, number | null>; weak_topics: number }[];
+  students: {
+    id: string;
+    name: string;
+    class_id?: string | null;
+    class_name?: string | null;
+    overall: number | null;
+    level: Level;
+    topics: Record<string, number | null>;
+    weak_topics: number;
+  }[];
+  classes?: { id: string; name: string; student_count: number; average: number | null }[];
   distribution: { band: string; count: number }[];
 }
 
@@ -473,7 +483,7 @@ export interface Alert {
 }
 
 export interface StudentDetail {
-  student: { id: string; name: string; xp: number; streak: number };
+  student: { id: string; name: string; class_name?: string | null; xp: number; streak: number };
   overall: number | null;
   level: Level;
   subjects: { id: string; name: string; color: string; average: number | null; topics: { id: string; name: string; mastery: number; attempts: number; level: Level }[] }[];

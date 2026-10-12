@@ -1,8 +1,9 @@
 import { Link, useParams, useSearchParams } from "react-router-dom";
-import { ArrowLeft, CheckCircle2, Flame, Star, XCircle } from "lucide-react";
+import { ArrowLeft, CheckCircle2, Flame, School, Star, XCircle } from "lucide-react";
 import { LEVEL_STYLE, MasteryBadge, MasteryBar } from "@/components/mastery";
 import { ProgressRing } from "@/components/progress-ring";
 import { EmptyState, ErrorState, PageLoader } from "@/components/states";
+import { Badge } from "@/components/ui/badge";
 import { Card, CardTitle } from "@/components/ui/card";
 import { useApi } from "@/lib/useApi";
 import { timeAgo } from "@/lib/utils";
@@ -30,7 +31,14 @@ export default function TeacherStudentPage() {
           <span className="text-xs text-muted-foreground">overall</span>
         </ProgressRing>
         <div className="flex-1 space-y-2 text-center sm:text-left">
-          <h1 className="text-2xl font-extrabold">{data.student.name}</h1>
+          <div className="flex flex-wrap items-center justify-center gap-2 sm:justify-start">
+            <h1 className="text-2xl font-extrabold">{data.student.name}</h1>
+            {data.student.class_name && (
+              <Badge variant="secondary" className="flex items-center gap-1">
+                <School className="size-3" /> Class {data.student.class_name}
+              </Badge>
+            )}
+          </div>
           <p className="text-sm text-muted-foreground">{subjectId && data.subjects[0] ? `Overall ${data.subjects[0].name}` : "Across subjects you can view"}</p>
           <div className="flex flex-wrap justify-center gap-2 sm:justify-start">
             <MasteryBadge level={data.level.key} />

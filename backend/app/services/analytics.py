@@ -6,7 +6,7 @@ from statistics import mean
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from ..models import Profile, QuestionAttempt, StudentTopicProgress, Subject, Topic
+from ..models import ClassStudent, Profile, QuestionAttempt, SchoolClass, StudentTopicProgress, Subject, Topic
 from .mastery import mastery_level
 
 STRUGGLING_THRESHOLD = 50
@@ -36,20 +36,57 @@ def subject_dashboard(db: Session, subject: Subject, students: list[Profile]) ->
     for r in rows:
         by_student[r.student_id][r.topic_id] = r
 
+    student_classes: dict[str, dict[str, str]] = {}
+    if student_ids:
+        class_rows = db.execute(
+            select(ClassStudent.student_id, SchoolClass.id, SchoolClass.name)
+            .join(SchoolClass, SchoolClass.id == ClassStudent.class_id)
+            .where(
+                ClassStudent.student_id.in_(student_ids),
+                ClassStudent.status == "active",
+                SchoolClass.status == "active",
+            )
+        ).all()
+        for sid, cid, cname in class_rows:
+            student_classes[sid] = {"class_id": cid, "class_name": cname}
+
     topics = list(subject.topics)
     student_rows = []
     for s in students:
         prog = by_student.get(s.id, {})
         overall = _avg([p.mastery for p in prog.values()])
+        cls_info = student_classes.get(s.id, {})
         student_rows.append({
             "id": s.id,
             "name": s.full_name,
+            "class_id": cls_info.get("class_id"),
+            "class_name": cls_info.get("class_name"),
             "overall": overall,
             "level": mastery_level(overall or 0, len(prog)),
             "topics": {t.id: (prog[t.id].mastery if t.id in prog else None) for t in topics},
             "weak_topics": sum(1 for p in prog.values() if p.mastery < STRUGGLING_THRESHOLD),
         })
     student_rows.sort(key=lambda r: (r["overall"] is None, -(r["overall"] or 0)))
+
+    class_groups: dict[str, dict] = {}
+    for r in student_rows:
+        cid = r.get("class_id") or "unassigned"
+        cname = r.get("class_name") or "Unassigned"
+        if cid not in class_groups:
+            class_groups[cid] = {"id": cid, "name": cname, "student_count": 0, "averages": []}
+        class_groups[cid]["student_count"] += 1
+        if r["overall"] is not None:
+            class_groups[cid]["averages"].append(r["overall"])
+
+    classes_summary = [
+        {
+            "id": cg["id"],
+            "name": cg["name"],
+            "student_count": cg["student_count"],
+            "average": _avg(cg["averages"]),
+        }
+        for cg in sorted(class_groups.values(), key=lambda x: x["name"])
+    ]
 
     topic_stats = []
     for t in topics:
@@ -83,6 +120,7 @@ def subject_dashboard(db: Session, subject: Subject, students: list[Profile]) ->
         "questions_attempted": attempts_total,
         "topics": topic_stats,
         "students": student_rows,
+        "classes": classes_summary,
         "distribution": _distribution(overall_vals),
     }
 
@@ -97,7 +135,7 @@ def student_detail(db: Session, student: Profile, subject_ids: list[str] | None)
         Subject, Subject.id == StudentTopicProgress.subject_id
     ).where(StudentTopicProgress.student_id == student.id, StudentTopicProgress.attempts_count > 0)
     if subject_ids is not None:
-        stmt = stmt.where(StudentTopicProgress.subject_id.in_(subject_ids))
+        stmt = stmt.where(StudentTopicProgress.subject_id == subject_ids if isinstance(subject_ids, str) else StudentTopicProgress.subject_id.in_(subject_ids))
     rows = db.execute(stmt).all()
 
     subjects: dict[str, dict] = {}
@@ -122,8 +160,19 @@ def student_detail(db: Session, student: Profile, subject_ids: list[str] | None)
         for a, name in db.execute(att_stmt).all()
     ]
     overall = _avg([x["mastery"] for e in subjects.values() for x in e["topics"]])
+    klass_name = db.scalar(
+        select(SchoolClass.name)
+        .join(ClassStudent, ClassStudent.class_id == SchoolClass.id)
+        .where(ClassStudent.student_id == student.id, ClassStudent.status == "active", SchoolClass.status == "active")
+    )
     return {
-        "student": {"id": student.id, "name": student.full_name, "xp": student.xp, "streak": student.current_streak},
+        "student": {
+            "id": student.id,
+            "name": student.full_name,
+            "class_name": klass_name,
+            "xp": student.xp,
+            "streak": student.current_streak,
+        },
         "overall": overall,
         "level": mastery_level(overall or 0, len(rows)),
         "subjects": sorted(subjects.values(), key=lambda e: e["name"]),

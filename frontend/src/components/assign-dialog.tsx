@@ -20,7 +20,7 @@ export function AssignDialog({
   subjectId: string;
   topicId?: string;
   topicName?: string;
-  students: { id: string; name: string; mastery?: number }[];
+  students: { id: string; name: string; mastery?: number; class_name?: string | null }[];
   examId?: string;
   onDone?: () => void;
 }) {
@@ -119,7 +119,10 @@ export function AssignDialog({
                 {students.map((s) => (
                   <label key={s.id} className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-muted">
                     <Checkbox checked={selected.includes(s.id)} onCheckedChange={() => setSelected((x) => (x.includes(s.id) ? x.filter((i) => i !== s.id) : [...x, s.id]))} />
-                    <span className="flex-1 text-sm font-medium">{s.name}</span>
+                    <span className="flex-1 text-sm font-medium">
+                      {s.name}
+                      {s.class_name && <span className="ml-1.5 text-xs text-muted-foreground">({s.class_name})</span>}
+                    </span>
                     {s.mastery != null && <span className="text-xs font-bold text-orange-600">{Math.round(s.mastery)}%</span>}
                   </label>
                 ))}
